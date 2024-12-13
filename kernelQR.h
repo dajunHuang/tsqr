@@ -53,7 +53,7 @@ __device__ void qr_kernel(const int m, const int n, T *A, const int lda, T *Q,
     int num_data_col = (n + block_dim_y - 1) / block_dim_y;
     T acc_per_thread[4], q_per_thread[4];
 
-    if(A != Q) {
+    if (A != Q) {
         for (int k = 0; k < num_data_row; k++) {
             int row_idx = thread_idx_x + k * block_dim_x;
             if (row_idx < m) {
@@ -270,12 +270,12 @@ template __device__ void qr_kernel<double>(const int m, const int n, double *A,
 __device__ volatile int sync_counter = 0;
 
 template <typename T>
-__global__ void householder_kernel(const int block_size, const int m,
-                                   const int n, T *A, const int lda, T *R,
-                                   const int ldr, T *work, const int ldwork) {
+__global__ void tsqr_kernel(const int block_size, const int m, const int n,
+                            T *A, const int lda, T *R, const int ldr, T *work,
+                            const int ldwork) {
     // 创建shared memory，让整个block的线程能够进行数据共享
     extern __shared__ T all_shared_A[];
-    __shared__ T shared_RR[128];                       // n <= 128
+    __shared__ T shared_RR[128];                // n <= 128
     __shared__ int shared_all_data_height[16];  // reduction_time < 16
     __shared__ int reduction_time;
 
@@ -334,7 +334,8 @@ __global__ void householder_kernel(const int block_size, const int m,
             }
         }
 
-        while (sync_counter < count_end_block) { }
+        while (sync_counter < count_end_block) {
+        }
 
         if (thread_idx_x == 0 && thread_idx_y == 0) {
             all_data_height =
@@ -384,7 +385,8 @@ __global__ void householder_kernel(const int block_size, const int m,
                     atomicAdd((int *)&sync_counter, -1);
                 }
 
-                while (sync_counter > count_end_block + num_reduction_block) { }
+                while (sync_counter > count_end_block + num_reduction_block) {
+                }
 
                 block_gemm(block_data_height, n, q_work, ldwork, q_this, ldsa,
                            q_next, lda);
@@ -395,7 +397,8 @@ __global__ void householder_kernel(const int block_size, const int m,
                     atomicAdd((int *)&sync_counter, -1);
                 }
 
-                while (sync_counter > count_end_block) { }
+                while (sync_counter > count_end_block) {
+                }
 
                 for (int row_load_idx = 0; row_load_idx < num_data_row;
                      row_load_idx++) {
@@ -417,7 +420,8 @@ __global__ void householder_kernel(const int block_size, const int m,
                 if (thread_idx_x == 0 && thread_idx_y == 0) {
                     atomicAdd((int *)&sync_counter, -2);
                 }
-                while (sync_counter > count_end_block) {}
+                while (sync_counter > count_end_block) {
+                }
 
                 for (int row_load_idx = 0; row_load_idx < num_data_row;
                      row_load_idx++) {
@@ -449,6 +453,8 @@ __global__ void householder_kernel(const int block_size, const int m,
     }
 }
 
-template __global__ void householder_kernel<double>(
-    const int block_size, const int m, const int n, double *A, const int lda,
-    double *R, const int ldr, double *work, const int ldwork);
+template __global__ void tsqr_kernel<double>(const int block_size, const int m,
+                                             const int n, double *A,
+                                             const int lda, double *R,
+                                             const int ldr, double *work,
+                                             const int ldwork);

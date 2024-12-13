@@ -81,8 +81,8 @@ void test_tsqr(int block_size, int m, int n) {
     // printf("A\n");
     // printDeviceMatrixV2(d_A, lda, m < 169 ? m : 169, 32);
     // printf("tsqr\n");
-    tsqr<T>(cublasH, block_size, m, n, d_A, lda, d_R, ldr, d_work1,
-                      ldwork1, d_work2, ldwork2);
+    tsqr<T>(cublasH, block_size, m, n, d_A, lda, d_R, ldr, d_work1, ldwork1,
+            d_work2, ldwork2);
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK_LAST_ERROR();
     // printf("R\n");
@@ -96,8 +96,8 @@ void test_tsqr(int block_size, int m, int n) {
     //             lda, d_A, lda, &zero, d_Q, n);
     // printDeviceMatrixV2(d_Q, n, n, n);
 
-    cublasDgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &one, d_A, lda,
-                d_R, ldr, &zero, d_A, lda);
+    cublasDgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &one, d_A, lda, d_R,
+                ldr, &zero, d_A, lda);
     CUDA_CHECK(cudaDeviceSynchronize());
 
     CUDA_CHECK(cudaMemcpyAsync(A_from_gpu.data(), d_A,
@@ -117,8 +117,8 @@ void test_tsqr(int block_size, int m, int n) {
     for (int i{0}; i < NUM_WARPUP; ++i) {
         cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
         CUDA_CHECK(cudaDeviceSynchronize());
-        tsqr<T>(cublasH, block_size, m, n, d_A, lda, d_R, ldr,
-                          d_work1, ldwork1, d_work2, ldwork2);
+        tsqr<T>(cublasH, block_size, m, n, d_A, lda, d_R, ldr, d_work1, ldwork1,
+                d_work2, ldwork2);
         CUDA_CHECK(cudaDeviceSynchronize());
     }
     CUDA_CHECK(cudaStreamSynchronize(stream));
@@ -127,8 +127,8 @@ void test_tsqr(int block_size, int m, int n) {
         CUDA_CHECK(cudaDeviceSynchronize());
         CUDA_CHECK(cudaEventRecord(start, stream));
 
-        tsqr<T>(cublasH, block_size, m, n, d_A, lda, d_R, ldr,
-                          d_work1, ldwork1, d_work2, ldwork2);
+        tsqr<T>(cublasH, block_size, m, n, d_A, lda, d_R, ldr, d_work1, ldwork1,
+                d_work2, ldwork2);
 
         CUDA_CHECK(cudaEventRecord(stop, stream));
         CUDA_CHECK(cudaDeviceSynchronize());
