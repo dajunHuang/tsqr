@@ -79,9 +79,9 @@ void tsqr(cublasHandle_t cublas_handle, int block_size, int m, int n,
         int grid_dim = 108;
         dim3 block_dim = {32, 32};
         for(int i = 0; i < grid_num - 1; ++i) {
-            int grid_size = min(m - i * max_grid_size, max_grid_size);
-            tsgemm<<<grid_dim, block_dim>>>(grid_size, n, A + i * max_grid_size, lda,
-                                            d_work1 + i * n, ldwork1, A + i * max_grid_size, lda);
+            int grid_size = max_grid_size;
+            tsgemm<<<grid_dim, block_dim>>>(grid_size, n, &A[i * max_grid_size], lda,
+                                            &d_work1[i * n], ldwork1, &A[i * max_grid_size], lda);
         }
 
         int last_grid_offset = (grid_num - 1) * max_grid_size;
