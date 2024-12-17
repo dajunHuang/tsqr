@@ -34,13 +34,13 @@
 #include <cusolverDn.h>
 #include <library_types.h>
 
+#include <cassert>
 #include <cmath>
 #include <functional>
 #include <iostream>
 #include <random>
 #include <stdexcept>
 #include <string>
-#include <cassert>
 
 // CUDA API error checking
 #define CUDA_CHECK(err)                                                      \
@@ -382,3 +382,132 @@ cusolverIRSRefinement_t get_cusolver_refinement_solver(
 
     return CUSOLVER_IRS_REFINE_NOT_SET;
 }
+
+template <typename T>
+void print_device_matrix(T *dA, long ldA, long rows, long cols) {
+    T matrix;
+
+    for (long i = 0; i < rows; i++) {
+        for (long j = 0; j < cols; j++) {
+            cudaMemcpy(&matrix, dA + i + j * ldA, sizeof(T),
+                       cudaMemcpyDeviceToHost);
+            printf("%9.6f ", matrix);
+        }
+        printf("\n");
+    }
+}
+
+template void print_device_matrix(double *dA, long ldA, long rows, long cols);
+template void print_device_matrix(float *dA, long ldA, long rows, long cols);
+
+template <typename T>
+bool all_close(T const *A, T const *A_ref, size_t m, size_t n, size_t lda,
+               T abs_tol, double rel_tol) {
+    bool status{true};
+    for (size_t j{0U}; j < n; ++j) {
+        for (size_t i{0U}; i < m; ++i) {
+            T const A_val{static_cast<T>(A[i + j * lda])};
+            T const A_ref_val{static_cast<T>(A_ref[i + j * lda])};
+            T const diff{A_val - A_ref_val};
+            T const diff_val{std::abs(diff)};
+            if (std::isnan(diff_val) ||
+                diff_val >
+                    std::max(static_cast<T>(abs_tol),
+                             static_cast<T>(std::abs(A_ref_val)) * rel_tol)) {
+                std::cout << "A[" << i << ", " << j << "] = " << A_val
+                          << " A_ref[" << i << ", " << j << "] = " << A_ref_val
+                          << " Abs Diff: " << diff_val
+                          << " Abs Diff Threshold: " << static_cast<T>(abs_tol)
+                          << " Rel->Abs Diff Threshold: "
+                          << static_cast<T>(
+                                 static_cast<T>(std::abs(A_ref_val)) * rel_tol)
+                          << std::endl;
+                status = false;
+                return status;
+            }
+        }
+    }
+    return status;
+}
+template bool all_close(double const *A, double const *A_ref, size_t m,
+                        size_t n, size_t lda, double abs_tol, double rel_tol);
+
+template <typename T>
+__global__ void init_identity_matrix(T *matrix, int ldm, int m, int n) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < m; ++i) {
+            for (int j = 0; j < n; ++j) {
+                if (i == j)
+                    matrix[i + j * ldm] = 1;
+                else
+                    matrix[i + j * ldm] = 0;
+            }
+        }
+    }
+}
+template __global__ void init_identity_matrix<double>(double *matrix, int ldm,
+                                                      int m, int n);
+
+template <typename T>
+__global__ void copy_matrix(int m, int n, T *dst, int ldst, T *src, int ldsrc) {
+    for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < n; ++j) {
+            dst[i + j * ldst] = src[i + j * ldsrc];
+        }
+    }
+}
+template __global__ void copy_matrix<double>(int m, int n, double *dst,
+                                             int ldst, double *src, int ldsrc);
+
+template <typename T>
+T get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, T *A, int lda) {
+    T s = 0;
+    const int ldu = m;   // ldu >= m
+    const int ldvt = n;  // ldvt >= n if jobu = 'A'
+    int ldwork = 0;
+    int info_gpu = 0;
+
+    int *devInfo = nullptr;
+    T *d_work = nullptr;
+    T *d_S = nullptr;
+    T *d_U = nullptr;  /* left singular vectors */
+    T *d_VT = nullptr; /* right singular vectors */
+
+    CUSOLVER_CHECK(cusolverDnDgesvd_bufferSize(cusolverH, m, n, &ldwork));
+
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void **>(&d_work), ldwork * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&devInfo), sizeof(int)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_S), n * sizeof(T)));
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void **>(&d_U), ldu * m * sizeof(T)));
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void **>(&d_VT), ldvt * n * sizeof(T)));
+
+    CUSOLVER_CHECK(cusolverDnDgesvd(cusolverH, 'N', 'N', m, n, A, lda, d_S, d_U,
+                                    ldu, d_VT, ldvt, d_work, ldwork, nullptr,
+                                    devInfo));
+    CUDA_CHECK(
+        cudaMemcpy(&info_gpu, devInfo, sizeof(int), cudaMemcpyDeviceToHost));
+
+    if (info_gpu < 0) {
+        std::printf("%d-th parameter is wrong \n", -info_gpu);
+        exit(1);
+    } else if (info_gpu > 0) {
+        std::printf("WARNING: info = %d : gesvd does not converge \n",
+                    info_gpu);
+        exit(1);
+    }
+
+    CUDA_CHECK(cudaMemcpy(&s, d_S, sizeof(T), cudaMemcpyDeviceToHost));
+
+    CUDA_CHECK(cudaFree(d_U));
+    CUDA_CHECK(cudaFree(d_VT));
+    CUDA_CHECK(cudaFree(d_S));
+    CUDA_CHECK(cudaFree(devInfo));
+    CUDA_CHECK(cudaFree(d_work));
+
+    return s;
+}
+template double get_matrix_2_norm<double>(cusolverDnHandle_t cusolverH, int m,
+                                          int n, double *A, int lda);

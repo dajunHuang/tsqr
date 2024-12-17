@@ -5,8 +5,8 @@
 #include <cmath>
 #include <iostream>
 
+#include "utils.h"
 #include "kernelQR.h"
-#include "myBase.h"
 
 __global__ void tsgemm(int m, int n, double *A, const int lda, double *B,
                        const int ldb, double *C, const int ldc) {
@@ -37,8 +37,7 @@ __global__ void tsgemm(int m, int n, double *A, const int lda, double *B,
     }
 }
 
-// 注意M必须<=256,N必须<=32
-// 另外n必须<=N
+
 template <typename T>
 void tsqr(cublasHandle_t cublas_handle, int block_size, int m, int n, T *A,
           int lda, T *R, int ldr, T *d_work1, int ldwork1, T *d_work2,

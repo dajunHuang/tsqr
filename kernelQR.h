@@ -1,10 +1,6 @@
 #include <cooperative_groups.h>
 #include <mma.h>
 
-#include "cusolver_utils.h"
-
-// namespace cg = cooperative_groups;
-
 #pragma once
 template <typename T>
 static __inline__ __device__ T warp_all_reduce_sum(T val) {
@@ -452,7 +448,6 @@ __global__ void tsqr_kernel(const int block_size, const int m, const int n,
         __syncthreads();
     }
 }
-
 template __global__ void tsqr_kernel<double>(const int block_size, const int m,
                                              const int n, double *A,
                                              const int lda, double *R,
