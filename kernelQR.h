@@ -1,7 +1,14 @@
-#include <cooperative_groups.h>
-#include <mma.h>
-
 #pragma once
+
+#define NUM_SM 108
+#define BLOCK_SIZE 128
+#define BLOCK_DIM_X 32
+#define BLOCK_DIM_Y 32
+#define NUM_Q_ROW (BLOCK_SIZE + BLOCK_DIM_X - 1) / BLOCK_DIM_X;
+#define NUM_Q_COL 1  // (n + BLOCK_DIM_Y - 1) / BLOCK_DIM_Y;
+#define MAX_N 128
+#define MAX_REDUCTION_TIME 16
+
 template <typename T>
 static __inline__ __device__ T warp_all_reduce_sum(T val) {
     for (int mask = warpSize / 2; mask > 0; mask /= 2) {
@@ -13,7 +20,7 @@ static __inline__ __device__ T warp_all_reduce_sum(T val) {
 template <typename T>
 __device__ void block_gemm(int m, int n, T *C, const int ldc, T *A,
                            const int lda, T *B, const int ldb) {
-    const int block_dim_x = blockDim.x, block_dim_y = blockDim.y;
+    const int block_dim_x = BLOCK_DIM_X, block_dim_y = BLOCK_DIM_Y;
     const int thread_idx_x = threadIdx.x, thread_idx_y = threadIdx.y;
     const int num_row = (m + block_dim_x - 1) / block_dim_x;
     const int num_col = (n + block_dim_y - 1) / block_dim_y;
@@ -42,12 +49,13 @@ __device__ void qr_kernel(const int m, const int n, T *A, const int lda, T *Q,
                           const int ldq, T *R, const int ldr, T *RR) {
     const int thread_idx_x = threadIdx.x;
     const int thread_idx_y = threadIdx.y;
-    const int block_dim_x = blockDim.x;
-    const int block_dim_y = blockDim.y;
+    const int block_dim_x = BLOCK_DIM_X;
+    const int block_dim_y = BLOCK_DIM_Y;
 
     int num_data_row = (m + block_dim_x - 1) / block_dim_x;
     int num_data_col = (n + block_dim_y - 1) / block_dim_y;
-    T acc_per_thread[4], q_per_thread[4];
+
+    T acc_per_thread[NUM_Q_ROW], q_per_thread[NUM_Q_ROW * NUM_Q_COL];
 
     if (A != Q) {
         for (int k = 0; k < num_data_row; k++) {
@@ -203,9 +211,9 @@ __device__ void qr_kernel(const int m, const int n, T *A, const int lda, T *Q,
         for (int k = 0; k < num_data_row; k++) {
             int row_idx = thread_idx_x + k * block_dim_x;
             if (row_idx == opCols) {
-                q_per_thread[k + h * 4] = 1.0;
+                q_per_thread[k + h * NUM_Q_ROW] = 1.0;
             } else {
-                q_per_thread[k + h * 4] = 0.0;
+                q_per_thread[k + h * NUM_Q_ROW] = 0.0;
             }
         }
 
@@ -222,8 +230,8 @@ __device__ void qr_kernel(const int m, const int n, T *A, const int lda, T *Q,
                     acc_per_thread[k] = 0.0;
                     int row_idx = thread_idx_x + k * block_dim_x;
                     if (row_idx < m) {
-                        acc_per_thread[k] =
-                            Q[row_idx + cols * ldq] * q_per_thread[k + h * 4];
+                        acc_per_thread[k] = Q[row_idx + cols * ldq] *
+                                            q_per_thread[k + h * NUM_Q_ROW];
                     }
                     nu += acc_per_thread[k];
                 }
@@ -234,7 +242,7 @@ __device__ void qr_kernel(const int m, const int n, T *A, const int lda, T *Q,
                 for (int k = 0; k < num_data_row; k++) {
                     int row_idx = thread_idx_x + k * block_dim_x;
                     if (row_idx < m) {
-                        q_per_thread[k + h * 4] -=
+                        q_per_thread[k + h * NUM_Q_ROW] -=
                             utq * Q[row_idx + cols * ldq];
                     }
                 }
@@ -252,7 +260,8 @@ __device__ void qr_kernel(const int m, const int n, T *A, const int lda, T *Q,
             for (int h = 0; h < num_data_col; h++) {
                 int col_idx = thread_idx_y + h * block_dim_y;
                 if (col_idx < n) {
-                    Q[row_idx + col_idx * ldq] = q_per_thread[k + h * 4];
+                    Q[row_idx + col_idx * ldq] =
+                        q_per_thread[k + h * NUM_Q_ROW];
                 }
             }
         }
@@ -266,20 +275,19 @@ template __device__ void qr_kernel<double>(const int m, const int n, double *A,
 __device__ volatile int sync_counter = 0;
 
 template <typename T>
-__global__ void tsqr_kernel(const int block_size, const int m, const int n,
-                            T *A, const int lda, T *R, const int ldr, T *work,
-                            const int ldwork) {
+__global__ void tsqr_kernel(const int m, const int n, T *A, const int lda, T *R,
+                            const int ldr, T *work, const int ldwork) {
     // 创建shared memory，让整个block的线程能够进行数据共享
     extern __shared__ T all_shared_A[];
-    __shared__ T shared_RR[128];                // n <= 128
-    __shared__ int shared_all_data_height[16];  // reduction_time < 16
+    __shared__ T shared_RR[MAX_N];
+    __shared__ int shared_all_data_height[MAX_REDUCTION_TIME];
     __shared__ int reduction_time;
 
     const int thread_idx_x = threadIdx.x;
     const int thread_idx_y = threadIdx.y;
     const int block_idx_x = blockIdx.x;
-    const int block_dim_x = blockDim.x;
-    const int block_dim_y = blockDim.y;
+    const int block_dim_x = BLOCK_DIM_X;
+    const int block_dim_y = BLOCK_DIM_Y;
 
     if (thread_idx_x == 0 && thread_idx_y == 0) {
         if (block_idx_x == 0) {
@@ -295,24 +303,24 @@ __global__ void tsqr_kernel(const int block_size, const int m, const int n,
 
     __syncthreads();
 
-    const int ldsa = block_size;
+    const int ldsa = BLOCK_SIZE;
     int num_reduction_block = 0;
     int count_end_block = 0;
 
     while (shared_all_data_height[reduction_time] > n) {
         int all_data_height = shared_all_data_height[reduction_time];
         int block_data_height =
-            min(all_data_height - block_idx_x * block_size, block_size);
+            min(all_data_height - block_idx_x * BLOCK_SIZE, BLOCK_SIZE);
 
-        num_reduction_block = (all_data_height + block_size - 1) / block_size;
+        num_reduction_block = (all_data_height + BLOCK_SIZE - 1) / BLOCK_SIZE;
         count_end_block += num_reduction_block;
 
         if (block_data_height > 0) {
-            T *A_from = &A[block_idx_x * block_size];
+            T *A_from = &A[block_idx_x * BLOCK_SIZE];
             T *Q_to = &all_shared_A[reduction_time * n * ldsa];
             T *R_to;
             int lda_from = lda, ldq_to = ldsa, ldr_to = 0;
-            if (all_data_height <= block_size) {
+            if (all_data_height <= BLOCK_SIZE) {
                 R_to = R;
                 ldr_to = ldr;
             } else {
@@ -335,7 +343,7 @@ __global__ void tsqr_kernel(const int block_size, const int m, const int n,
 
         if (thread_idx_x == 0 && thread_idx_y == 0) {
             all_data_height =
-                ((all_data_height + block_size - 1) / block_size) * n;
+                ((all_data_height + BLOCK_SIZE - 1) / BLOCK_SIZE) * n;
             shared_all_data_height[++reduction_time] = all_data_height;
             // if (block_idx_x == 0) {
             //     printf("shared_all_data_height[%d] = %d\n", reduction_time,
@@ -356,9 +364,9 @@ __global__ void tsqr_kernel(const int block_size, const int m, const int n,
     while (reduction_time >= 0) {
         int all_data_height = shared_all_data_height[reduction_time];
         int block_data_height =
-            min(all_data_height - block_idx_x * block_size, block_size);
+            min(all_data_height - block_idx_x * BLOCK_SIZE, BLOCK_SIZE);
 
-        num_reduction_block = (all_data_height + block_size - 1) / block_size;
+        num_reduction_block = (all_data_height + BLOCK_SIZE - 1) / BLOCK_SIZE;
         count_end_block = count_end_block - num_reduction_block * 2;
 
         if (block_data_height > 0) {
@@ -368,12 +376,12 @@ __global__ void tsqr_kernel(const int block_size, const int m, const int n,
 
             T *q_next = &A[block_idx_x * n];
             T *q_this = &all_shared_A[reduction_time * n * ldsa];
-            T *q_to = &A[block_idx_x * block_size];
+            T *q_to = &A[block_idx_x * BLOCK_SIZE];
             T *q_work =
                 &work[block_idx_x *
-                      block_size];  // may able to remove q_work and work
+                      BLOCK_SIZE];  // may able to remove q_work and work
 
-            if (all_data_height > block_size) {
+            if (all_data_height > BLOCK_SIZE) {
                 __threadfence();
                 __syncthreads();
 
@@ -448,8 +456,7 @@ __global__ void tsqr_kernel(const int block_size, const int m, const int n,
         __syncthreads();
     }
 }
-template __global__ void tsqr_kernel<double>(const int block_size, const int m,
-                                             const int n, double *A,
-                                             const int lda, double *R,
-                                             const int ldr, double *work,
-                                             const int ldwork);
+template __global__ void tsqr_kernel<double>(const int m, const int n,
+                                             double *A, const int lda,
+                                             double *R, const int ldr,
+                                             double *work, const int ldwork);

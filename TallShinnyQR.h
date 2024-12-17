@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cusolverDn.h>
-
 #include <cmath>
 #include <iostream>
 
@@ -11,7 +10,7 @@
 __global__ void tsgemm(int m, int n, double *A, const int lda, double *B,
                        const int ldb, double *C, const int ldc) {
     const int grid_dim_x = gridDim.x, grid_dim_y = gridDim.y;
-    const int block_dim_x = blockDim.x, block_dim_y = blockDim.y;
+    const int block_dim_x = BLOCK_DIM_X, block_dim_y = BLOCK_DIM_Y;
     const int block_idx_x = blockIdx.x, block_idx_y = blockIdx.y;
     const int thread_idx_x = threadIdx.x, thread_idx_y = threadIdx.y;
 
@@ -38,11 +37,11 @@ __global__ void tsgemm(int m, int n, double *A, const int lda, double *B,
 }
 
 template <typename T>
-void tsqr(int block_size, int m, int n, T *A, int lda, T *R, int ldr,
-          T *d_work1, int ldwork1, T *d_work2, int ldwork2) {
-    dim3 block_dim(32, 32);  // if change block_dim, also change acc_per_thread
+void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work1, int ldwork1,
+          T *d_work2, int ldwork2) {
+    dim3 block_dim(BLOCK_DIM_X, BLOCK_DIM_Y);  // if change block_dim, also change acc_per_thread
                              // and q_per_thread mannually in kernelQR.h
-    int max_grid_size = 108 * block_size;
+    int max_grid_size = NUM_SM * BLOCK_SIZE;
     if (m > (max_grid_size / n) * max_grid_size) {
         printf("not supported size\n");
         return;
@@ -51,12 +50,12 @@ void tsqr(int block_size, int m, int n, T *A, int lda, T *R, int ldr,
 
     if (grid_num > 1) {
         assert((m % max_grid_size) % n == 0);
-        assert(block_size % n == 0);
+        assert(BLOCK_SIZE % n == 0);
 
         int reduction_time =
-            ceil((log(max_grid_size) - log(n)) / (log(block_size) - log(n)));
+            ceil((log(max_grid_size) - log(n)) / (log(BLOCK_SIZE) - log(n)));
         // printf("size %d, reduction_time: %d\n", m, reduction_time);
-        int share_memory_size = reduction_time * block_size * n * sizeof(T);
+        int share_memory_size = reduction_time * BLOCK_SIZE * n * sizeof(T);
         CUDA_CHECK(cudaFuncSetAttribute(
             tsqr_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize,
             share_memory_size));
@@ -64,21 +63,19 @@ void tsqr(int block_size, int m, int n, T *A, int lda, T *R, int ldr,
         for (int i = 0; i < grid_num; ++i) {
             int grid_size = min(m - i * max_grid_size, max_grid_size);
 
-            int block_num = (grid_size + block_size - 1) / block_size;
+            int block_num = (grid_size + BLOCK_SIZE - 1) / BLOCK_SIZE;
             T *grid_A = A + i * max_grid_size, *grid_R = d_work1 + i * n;
             int ldgrid_A = lda, ldgrid_R = ldwork1;
 
             tsqr_kernel<T><<<block_num, block_dim, share_memory_size>>>(
-                block_size, grid_size, n, grid_A, ldgrid_A, grid_R, ldgrid_R,
-                d_work2, ldwork2);
+                grid_size, n, grid_A, ldgrid_A, grid_R, ldgrid_R, d_work2,
+                ldwork2);
         }
-        int block_num = (grid_num * n + block_size - 1) / block_size;
+        int block_num = (grid_num * n + BLOCK_SIZE - 1) / BLOCK_SIZE;
         tsqr_kernel<T><<<block_num, block_dim, share_memory_size>>>(
-            block_size, grid_num * n, n, d_work1, ldwork1, R, ldr, d_work2,
-            ldwork2);
+            grid_num * n, n, d_work1, ldwork1, R, ldr, d_work2, ldwork2);
 
-        int grid_dim = 108;
-        dim3 block_dim = {32, 32};
+        int grid_dim = NUM_SM;
         for (int i = 0; i < grid_num - 1; ++i) {
             int grid_size = max_grid_size;
             tsgemm<<<grid_dim, block_dim>>>(grid_size, n, &A[i * max_grid_size],
@@ -93,27 +90,24 @@ void tsqr(int block_size, int m, int n, T *A, int lda, T *R, int ldr,
                                         ldwork1, &A[last_grid_offset], lda);
 
     } else {
-        assert((m % block_size) % n == 0);
-        assert(block_size % n == 0);
+        assert((m % BLOCK_SIZE) % n == 0);
+        assert(BLOCK_SIZE % n == 0);
 
         int reduction_time =
-            ceil((log(m) - log(n)) / (log(block_size) - log(n)));
+            ceil((log(m) - log(n)) / (log(BLOCK_SIZE) - log(n)));
         // printf("size %d, reduction_time: %d\n", m, reduction_time);
-        int share_memory_size = reduction_time * block_size * n * sizeof(T);
+        int share_memory_size = reduction_time * BLOCK_SIZE * n * sizeof(T);
 
         CUDA_CHECK(cudaFuncSetAttribute(
             tsqr_kernel<T>, cudaFuncAttributeMaxDynamicSharedMemorySize,
             share_memory_size));
 
-        dim3 block_dim(32,
-                       32);  // if change block_dim, also change acc_per_thread
-                             // and q_per_thread mannually in kernelQR.h
-        int block_num = (m + block_size - 1) / block_size;
+        int block_num = (m + BLOCK_SIZE - 1) / BLOCK_SIZE;
         tsqr_kernel<T><<<block_num, block_dim, share_memory_size>>>(
-            block_size, m, n, A, lda, R, ldr, d_work2, ldwork2);
+            m, n, A, lda, R, ldr, d_work2, ldwork2);
     }
 }
 
-template void tsqr<double>(int block_size, int m, int n, double *A, int lda,
-                           double *R, int ldr, double *d_work1, int lwork1,
-                           double *d_work2, int lwork2);
+template void tsqr<double>(int m, int n, double *A, int lda, double *R, int ldr,
+                           double *d_work1, int lwork1, double *d_work2,
+                           int lwork2);
