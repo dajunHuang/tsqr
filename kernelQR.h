@@ -11,6 +11,23 @@
 #define MAX_REDUCTION_TIME 16
 
 template <typename T>
+struct shared_memory;
+template <>
+struct shared_memory<float> {
+    __device__ static float *get_pointer() {
+        extern __shared__ float shared_mem_float[];
+        return shared_mem_float;
+    }
+};
+template <>
+struct shared_memory<double> {
+    __device__ static double *get_pointer() {
+        extern __shared__ double shared_mem_double[];
+        return shared_mem_double;
+    }
+};
+
+template <typename T>
 static __inline__ __device__ T warp_all_reduce_sum(T val) {
     for (int mask = warpSize / 2; mask > 0; mask /= 2) {
         val += __shfl_xor_sync(0xffffffff, val, mask);
@@ -44,6 +61,10 @@ template __device__ void block_gemm<double>(int m, int n, double *C,
                                             const int ldc, double *A,
                                             const int lda, double *B,
                                             const int ldb);
+template __device__ void block_gemm<float>(int m, int n, float *C,
+                                            const int ldc, float *A,
+                                            const int lda, float *B,
+                                            const int ldb);                                            
 
 template <typename T>
 __device__ void qr_kernel(const int m, const int n, T *A, const int lda, T *Q,
@@ -279,7 +300,9 @@ template <typename T>
 __global__ void tsqr_kernel(const int m, const int n, T *A, const int lda, T *R,
                             const int ldr, T *work, const int ldwork) {
     // 创建shared memory，让整个block的线程能够进行数据共享
-    extern __shared__ T all_shared_A[];
+    shared_memory<T> shared;
+    T *all_shared_A = shared.get_pointer();
+
     __shared__ T shared_RR[MAX_N];
     __shared__ int shared_all_data_height[MAX_REDUCTION_TIME];
     __shared__ int reduction_time;
@@ -461,3 +484,7 @@ template __global__ void tsqr_kernel<double>(const int m, const int n,
                                              double *A, const int lda,
                                              double *R, const int ldr,
                                              double *work, const int ldwork);
+template __global__ void tsqr_kernel<float>(const int m, const int n,
+                                             float *A, const int lda,
+                                             float *R, const int ldr,
+                                             float *work, const int ldwork);                                             

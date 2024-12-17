@@ -41,6 +41,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 // CUDA API error checking
 #define CUDA_CHECK(err)                                                      \
@@ -100,120 +101,6 @@
 // device memory pitch alignment
 static const size_t device_alignment = 32;
 
-// type traits
-template <typename T>
-struct traits;
-
-template <>
-struct traits<float> {
-    // scalar type
-    typedef float T;
-    typedef T S;
-
-    static constexpr T zero = 0.f;
-    static constexpr cudaDataType cuda_data_type = CUDA_R_32F;
-#if CUDART_VERSION >= 11000
-    static constexpr cusolverPrecType_t cusolver_precision_type =
-        CUSOLVER_R_32F;
-#endif
-
-    inline static S abs(T val) { return fabs(val); }
-
-    template <typename RNG>
-    inline static T rand(RNG &gen) {
-        return (S)gen();
-    }
-
-    inline static T add(T a, T b) { return a + b; }
-
-    inline static T mul(T v, S f) { return v * f; }
-};
-
-template <>
-struct traits<double> {
-    // scalar type
-    typedef double T;
-    typedef T S;
-
-    static constexpr T zero = 0.;
-    static constexpr cudaDataType cuda_data_type = CUDA_R_64F;
-#if CUDART_VERSION >= 11000
-    static constexpr cusolverPrecType_t cusolver_precision_type =
-        CUSOLVER_R_64F;
-#endif
-
-    inline static S abs(T val) { return fabs(val); }
-
-    template <typename RNG>
-    inline static T rand(RNG &gen) {
-        return (S)gen();
-    }
-
-    inline static T add(T a, T b) { return a + b; }
-
-    inline static T mul(T v, S f) { return v * f; }
-};
-
-template <>
-struct traits<cuFloatComplex> {
-    // scalar type
-    typedef float S;
-    typedef cuFloatComplex T;
-
-    static constexpr T zero = {0.f, 0.f};
-    static constexpr cudaDataType cuda_data_type = CUDA_C_32F;
-#if CUDART_VERSION >= 11000
-    static constexpr cusolverPrecType_t cusolver_precision_type =
-        CUSOLVER_C_32F;
-#endif
-
-    inline static S abs(T val) { return cuCabsf(val); }
-
-    template <typename RNG>
-    inline static T rand(RNG &gen) {
-        return make_cuFloatComplex((S)gen(), (S)gen());
-    }
-
-    inline static T add(T a, T b) { return cuCaddf(a, b); }
-    inline static T add(T a, S b) {
-        return cuCaddf(a, make_cuFloatComplex(b, 0.f));
-    }
-
-    inline static T mul(T v, S f) {
-        return make_cuFloatComplex(v.x * f, v.y * f);
-    }
-};
-
-template <>
-struct traits<cuDoubleComplex> {
-    // scalar type
-    typedef double S;
-    typedef cuDoubleComplex T;
-
-    static constexpr T zero = {0., 0.};
-    static constexpr cudaDataType cuda_data_type = CUDA_C_64F;
-#if CUDART_VERSION >= 11000
-    static constexpr cusolverPrecType_t cusolver_precision_type =
-        CUSOLVER_C_64F;
-#endif
-
-    inline static S abs(T val) { return cuCabs(val); }
-
-    template <typename RNG>
-    inline static T rand(RNG &gen) {
-        return make_cuDoubleComplex((S)gen(), (S)gen());
-    }
-
-    inline static T add(T a, T b) { return cuCadd(a, b); }
-    inline static T add(T a, S b) {
-        return cuCadd(a, make_cuDoubleComplex(b, 0.));
-    }
-
-    inline static T mul(T v, S f) {
-        return make_cuDoubleComplex(v.x * f, v.y * f);
-    }
-};
-
 void print_device_info() {
     int device_id{0};
     cudaGetDevice(&device_id);
@@ -242,148 +129,6 @@ void print_device_info() {
 }
 
 template <typename T>
-void print_matrix(const int &m, const int &n, const T *A, const int &lda);
-
-template <>
-void print_matrix(const int &m, const int &n, const float *A, const int &lda) {
-    for (int i = 0; i < m; i++) {
-        for (int j = 0; j < n; j++) {
-            std::printf("%0.2f ", A[j * lda + i]);
-        }
-        std::printf("\n");
-    }
-}
-
-template <>
-void print_matrix(const int &m, const int &n, const double *A, const int &lda) {
-    for (int i = 0; i < m; i++) {
-        for (int j = 0; j < n; j++) {
-            std::printf("%0.2f ", A[j * lda + i]);
-        }
-        std::printf("\n");
-    }
-}
-
-template <>
-void print_matrix(const int &m, const int &n, const cuComplex *A,
-                  const int &lda) {
-    for (int i = 0; i < m; i++) {
-        for (int j = 0; j < n; j++) {
-            std::printf("%0.2f + %0.2fj ", A[j * lda + i].x, A[j * lda + i].y);
-        }
-        std::printf("\n");
-    }
-}
-
-template <>
-void print_matrix(const int &m, const int &n, const cuDoubleComplex *A,
-                  const int &lda) {
-    for (int i = 0; i < m; i++) {
-        for (int j = 0; j < n; j++) {
-            std::printf("%0.2f + %0.2fj ", A[j * lda + i].x, A[j * lda + i].y);
-        }
-        std::printf("\n");
-    }
-}
-
-template <typename T>
-void generate_random_matrix(cusolver_int_t m, cusolver_int_t n, T **A,
-                            int *lda) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<typename traits<T>::S> dis(-1.0, 1.0);
-    auto rand_gen = std::bind(dis, gen);
-
-    *lda = n;
-
-    size_t matrix_mem_size = static_cast<size_t>(*lda * m * sizeof(T));
-    // suppress gcc 7 size warning
-    if (matrix_mem_size <= PTRDIFF_MAX)
-        *A = (T *)malloc(matrix_mem_size);
-    else
-        throw std::runtime_error("Memory allocation size is too large");
-
-    if (*A == NULL) throw std::runtime_error("Unable to allocate host matrix");
-
-    // random matrix and accumulate row sums
-    for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < n; ++j) {
-            T *A_row = (*A) + *lda * i;
-            A_row[j] = traits<T>::rand(rand_gen);
-        }
-    }
-}
-
-// Makes matrix A of size mxn and leading dimension lda diagonal dominant
-template <typename T>
-void make_diag_dominant_matrix(cusolver_int_t m, cusolver_int_t n, T *A,
-                               int lda) {
-    for (int i = 0; i < std::min(m, n); ++i) {
-        T *A_row = A + lda * i;
-        auto row_sum = traits<typename traits<T>::S>::zero;
-        for (int j = 0; j < n; ++j) {
-            row_sum += traits<T>::abs(A_row[j]);
-        }
-        A_row[i] = traits<T>::add(A_row[i], row_sum);
-    }
-}
-
-// Returns cudaDataType value as defined in library_types.h for the string
-// containing type name
-cudaDataType get_cuda_library_type(std::string type_string) {
-    if (type_string.compare("CUDA_R_16F") == 0)
-        return CUDA_R_16F;
-    else if (type_string.compare("CUDA_C_16F") == 0)
-        return CUDA_C_16F;
-    else if (type_string.compare("CUDA_R_32F") == 0)
-        return CUDA_R_32F;
-    else if (type_string.compare("CUDA_C_32F") == 0)
-        return CUDA_C_32F;
-    else if (type_string.compare("CUDA_R_64F") == 0)
-        return CUDA_R_64F;
-    else if (type_string.compare("CUDA_C_64F") == 0)
-        return CUDA_C_64F;
-    else if (type_string.compare("CUDA_R_8I") == 0)
-        return CUDA_R_8I;
-    else if (type_string.compare("CUDA_C_8I") == 0)
-        return CUDA_C_8I;
-    else if (type_string.compare("CUDA_R_8U") == 0)
-        return CUDA_R_8U;
-    else if (type_string.compare("CUDA_C_8U") == 0)
-        return CUDA_C_8U;
-    else if (type_string.compare("CUDA_R_32I") == 0)
-        return CUDA_R_32I;
-    else if (type_string.compare("CUDA_C_32I") == 0)
-        return CUDA_C_32I;
-    else if (type_string.compare("CUDA_R_32U") == 0)
-        return CUDA_R_32U;
-    else if (type_string.compare("CUDA_C_32U") == 0)
-        return CUDA_C_32U;
-    else
-        throw std::runtime_error("Unknown CUDA datatype");
-}
-
-// Returns cusolverIRSRefinement_t value as defined in cusolver_common.h for the
-// string containing solver name
-cusolverIRSRefinement_t get_cusolver_refinement_solver(
-    std::string solver_string) {
-    if (solver_string.compare("CUSOLVER_IRS_REFINE_NONE") == 0)
-        return CUSOLVER_IRS_REFINE_NONE;
-    else if (solver_string.compare("CUSOLVER_IRS_REFINE_CLASSICAL") == 0)
-        return CUSOLVER_IRS_REFINE_CLASSICAL;
-    else if (solver_string.compare("CUSOLVER_IRS_REFINE_GMRES") == 0)
-        return CUSOLVER_IRS_REFINE_GMRES;
-    else if (solver_string.compare("CUSOLVER_IRS_REFINE_CLASSICAL_GMRES") == 0)
-        return CUSOLVER_IRS_REFINE_CLASSICAL_GMRES;
-    else if (solver_string.compare("CUSOLVER_IRS_REFINE_GMRES_GMRES") == 0)
-        return CUSOLVER_IRS_REFINE_GMRES_GMRES;
-    else
-        printf("Unknown solver parameter: \"%s\"\n", solver_string.c_str());
-
-    return CUSOLVER_IRS_REFINE_NOT_SET;
-}
-
-template <typename T>
 void print_device_matrix(T *dA, long ldA, long rows, long cols) {
     T matrix;
 
@@ -396,13 +141,12 @@ void print_device_matrix(T *dA, long ldA, long rows, long cols) {
         printf("\n");
     }
 }
-
 template void print_device_matrix(double *dA, long ldA, long rows, long cols);
 template void print_device_matrix(float *dA, long ldA, long rows, long cols);
 
 template <typename T>
 bool all_close(T const *A, T const *A_ref, size_t m, size_t n, size_t lda,
-               T abs_tol, double rel_tol) {
+               T abs_tol, T rel_tol) {
     bool status{true};
     for (size_t j{0U}; j < n; ++j) {
         for (size_t i{0U}; i < m; ++i) {
@@ -431,6 +175,8 @@ bool all_close(T const *A, T const *A_ref, size_t m, size_t n, size_t lda,
 }
 template bool all_close(double const *A, double const *A_ref, size_t m,
                         size_t n, size_t lda, double abs_tol, double rel_tol);
+template bool all_close(float const *A, float const *A_ref, size_t m,
+                        size_t n, size_t lda, float abs_tol, float rel_tol);                        
 
 template <typename T>
 __global__ void init_identity_matrix(T *matrix, int ldm, int m, int n) {
@@ -447,6 +193,8 @@ __global__ void init_identity_matrix(T *matrix, int ldm, int m, int n) {
 }
 template __global__ void init_identity_matrix<double>(double *matrix, int ldm,
                                                       int m, int n);
+template __global__ void init_identity_matrix<float>(float *matrix, int ldm,
+                                                      int m, int n);                                                      
 
 template <typename T>
 __global__ void copy_matrix(int m, int n, T *dst, int ldst, T *src, int ldsrc) {
@@ -458,31 +206,35 @@ __global__ void copy_matrix(int m, int n, T *dst, int ldst, T *src, int ldsrc) {
 }
 template __global__ void copy_matrix<double>(int m, int n, double *dst,
                                              int ldst, double *src, int ldsrc);
+template __global__ void copy_matrix<float>(int m, int n, float *dst,
+                                             int ldst, float *src, int ldsrc);                                             
 
 template <typename T>
-T get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, T *A, int lda) {
-    T s = 0;
+T get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, T *A, int lda);
+template <>
+double get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, double *A, int lda) {
+    double s = 0;
     const int ldu = m;   // ldu >= m
     const int ldvt = n;  // ldvt >= n if jobu = 'A'
     int ldwork = 0;
     int info_gpu = 0;
 
     int *devInfo = nullptr;
-    T *d_work = nullptr;
-    T *d_S = nullptr;
-    T *d_U = nullptr;  /* left singular vectors */
-    T *d_VT = nullptr; /* right singular vectors */
+    double *d_work = nullptr;
+    double *d_S = nullptr;
+    double *d_U = nullptr;  /* left singular vectors */
+    double *d_VT = nullptr; /* right singular vectors */
 
     CUSOLVER_CHECK(cusolverDnDgesvd_bufferSize(cusolverH, m, n, &ldwork));
 
     CUDA_CHECK(
-        cudaMalloc(reinterpret_cast<void **>(&d_work), ldwork * sizeof(T)));
+        cudaMalloc(reinterpret_cast<void **>(&d_work), ldwork * sizeof(double)));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&devInfo), sizeof(int)));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_S), n * sizeof(T)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_S), n * sizeof(double)));
     CUDA_CHECK(
-        cudaMalloc(reinterpret_cast<void **>(&d_U), ldu * m * sizeof(T)));
+        cudaMalloc(reinterpret_cast<void **>(&d_U), ldu * m * sizeof(double)));
     CUDA_CHECK(
-        cudaMalloc(reinterpret_cast<void **>(&d_VT), ldvt * n * sizeof(T)));
+        cudaMalloc(reinterpret_cast<void **>(&d_VT), ldvt * n * sizeof(double)));
 
     CUSOLVER_CHECK(cusolverDnDgesvd(cusolverH, 'N', 'N', m, n, A, lda, d_S, d_U,
                                     ldu, d_VT, ldvt, d_work, ldwork, nullptr,
@@ -499,7 +251,7 @@ T get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, T *A, int lda) {
         exit(1);
     }
 
-    CUDA_CHECK(cudaMemcpy(&s, d_S, sizeof(T), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(&s, d_S, sizeof(double), cudaMemcpyDeviceToHost));
 
     CUDA_CHECK(cudaFree(d_U));
     CUDA_CHECK(cudaFree(d_VT));
@@ -509,5 +261,177 @@ T get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, T *A, int lda) {
 
     return s;
 }
-template double get_matrix_2_norm<double>(cusolverDnHandle_t cusolverH, int m,
-                                          int n, double *A, int lda);
+template <>
+float get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, float *A, int lda) {
+    float s = 0;
+    const int ldu = m;   // ldu >= m
+    const int ldvt = n;  // ldvt >= n if jobu = 'A'
+    int ldwork = 0;
+    int info_gpu = 0;
+
+    int *devInfo = nullptr;
+    float *d_work = nullptr;
+    float *d_S = nullptr;
+    float *d_U = nullptr;  /* left singular vectors */
+    float *d_VT = nullptr; /* right singular vectors */
+
+    CUSOLVER_CHECK(cusolverDnDgesvd_bufferSize(cusolverH, m, n, &ldwork));
+
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void **>(&d_work), ldwork * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&devInfo), sizeof(int)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_S), n * sizeof(float)));
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void **>(&d_U), ldu * m * sizeof(float)));
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void **>(&d_VT), ldvt * n * sizeof(float)));
+
+    CUSOLVER_CHECK(cusolverDnSgesvd(cusolverH, 'N', 'N', m, n, A, lda, d_S, d_U,
+                                    ldu, d_VT, ldvt, d_work, ldwork, nullptr,
+                                    devInfo));
+    CUDA_CHECK(
+        cudaMemcpy(&info_gpu, devInfo, sizeof(int), cudaMemcpyDeviceToHost));
+
+    if (info_gpu < 0) {
+        std::printf("%d-th parameter is wrong \n", -info_gpu);
+        exit(1);
+    } else if (info_gpu > 0) {
+        std::printf("WARNING: info = %d : gesvd does not converge \n",
+                    info_gpu);
+        exit(1);
+    }
+
+    CUDA_CHECK(cudaMemcpy(&s, d_S, sizeof(float), cudaMemcpyDeviceToHost));
+
+    CUDA_CHECK(cudaFree(d_U));
+    CUDA_CHECK(cudaFree(d_VT));
+    CUDA_CHECK(cudaFree(d_S));
+    CUDA_CHECK(cudaFree(devInfo));
+    CUDA_CHECK(cudaFree(d_work));
+
+    return s;
+}
+
+template <typename T>
+void check_QR_accuracy(cusolverDnHandle_t cusolverH, cublasHandle_t cublasH,
+                       cudaStream_t stream, int m, int n, T *d_A, int ldq, T *R,
+                       int ldr, std::vector<T> &A_from_gpu, std::vector<T> &A);
+template <>
+void check_QR_accuracy<double>(cusolverDnHandle_t cusolverH,
+                               cublasHandle_t cublasH, cudaStream_t stream, int m, int n,
+                               double *d_A, int lda,
+                               double *d_R, int ldr,
+                               std::vector<double> &A_from_gpu,
+                               std::vector<double> &A) {
+    double one = 1, zero = 0, minus_one = -1;
+    const int ldqtq = n;
+    const int ldqr = m;
+    double *d_QTQ = nullptr;
+    double *d_QR = nullptr;
+
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void **>(&d_QTQ), sizeof(double) * n * n));
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void **>(&d_QR), sizeof(double) * m * n));
+
+    // QR = Q * R
+    cublasDgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &one, d_A, lda, d_R,
+                ldr, &zero, d_QR, ldqr);
+
+    // move QR to host memory
+    CUDA_CHECK(cudaMemcpyAsync(A_from_gpu.data(), d_QR,
+                               sizeof(double) * A_from_gpu.size(),
+                               cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    double abs_tol = 1.0e-4, rel_tol = 1.0e-5;
+    // compare QR with original A
+    if (!all_close(A_from_gpu.data(), A.data(), m, n, lda, abs_tol, rel_tol)) {
+        std::cout << "Error: tsqr" << std::endl;
+        exit(-1);
+    }
+
+    // d_QTQ = I - Q^T * Q
+    init_identity_matrix<<<1, 1>>>(d_QTQ, ldqtq, n, n);
+    cublasDgemm(cublasH, CUBLAS_OP_T, CUBLAS_OP_N, n, n, m, &minus_one, d_A,
+                lda, d_A, lda, &one, d_QTQ, ldqtq);
+    double QTQ_2_norm = get_matrix_2_norm(cusolverH, n, n, d_QTQ, ldqtq);
+
+    // d_QR = A
+    CUDA_CHECK(cudaMemcpy(d_QR, A.data(), sizeof(double) * A.size(),
+                          cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    double A_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
+
+    // d_QR = A - QR
+    CUDA_CHECK(cudaMemcpy(d_QR, A.data(), sizeof(double) * A.size(),
+                          cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    cublasDgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &minus_one, d_A,
+                lda, d_R, ldr, &one, d_QR, ldqr);
+    double QR_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
+
+    CUDA_CHECK(cudaFree(d_QTQ));
+    CUDA_CHECK(cudaFree(d_QR));
+    printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm, QTQ_2_norm);
+}
+template <>
+void check_QR_accuracy<float>(cusolverDnHandle_t cusolverH,
+                               cublasHandle_t cublasH, cudaStream_t stream, int m, int n,
+                               float *d_A, int lda,
+                               float *d_R, int ldr,
+                               std::vector<float> &A_from_gpu,
+                               std::vector<float> &A) {
+    float one = 1, zero = 0, minus_one = -1;
+    const int ldqtq = n;
+    const int ldqr = m;
+    float *d_QTQ = nullptr;
+    float *d_QR = nullptr;
+
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void **>(&d_QTQ), sizeof(float) * n * n));
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void **>(&d_QR), sizeof(float) * m * n));
+
+    // QR = Q * R
+    cublasSgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &one, d_A, lda, d_R,
+                ldr, &zero, d_QR, ldqr);
+
+    // move QR to host memory
+    CUDA_CHECK(cudaMemcpyAsync(A_from_gpu.data(), d_QR,
+                               sizeof(float) * A_from_gpu.size(),
+                               cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    float abs_tol = 1.0e-4, rel_tol = 1.0e-5;
+    // compare QR with original A
+    if (!all_close(A_from_gpu.data(), A.data(), m, n, lda, abs_tol, rel_tol)) {
+        std::cout << "Error: tsqr" << std::endl;
+        exit(-1);
+    }
+
+    // d_QTQ = I - Q^T * Q
+    init_identity_matrix<<<1, 1>>>(d_QTQ, ldqtq, n, n);
+    cublasSgemm(cublasH, CUBLAS_OP_T, CUBLAS_OP_N, n, n, m, &minus_one, d_A,
+                lda, d_A, lda, &one, d_QTQ, ldqtq);
+    float QTQ_2_norm = get_matrix_2_norm(cusolverH, n, n, d_QTQ, ldqtq);
+
+    // d_QR = A
+    CUDA_CHECK(cudaMemcpy(d_QR, A.data(), sizeof(float) * A.size(),
+                          cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    float A_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
+
+    // d_QR = A - QR
+    CUDA_CHECK(cudaMemcpy(d_QR, A.data(), sizeof(float) * A.size(),
+                          cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    cublasSgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &minus_one, d_A,
+                lda, d_R, ldr, &one, d_QR, ldqr);
+    float QR_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
+
+    CUDA_CHECK(cudaFree(d_QTQ));
+    CUDA_CHECK(cudaFree(d_QR));
+    printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm, QTQ_2_norm);
+}
+

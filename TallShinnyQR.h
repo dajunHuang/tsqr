@@ -1,14 +1,16 @@
 #pragma once
 
 #include <cusolverDn.h>
+
 #include <cmath>
 #include <iostream>
 
 #include "kernelQR.h"
 #include "utils.h"
 
-__global__ void tsgemm(int m, int n, double *A, const int lda, double *B,
-                       const int ldb, double *C, const int ldc) {
+template <typename T>
+__global__ void tsgemm(int m, int n, T *A, const int lda, T *B, const int ldb,
+                       T *C, const int ldc) {
     const int grid_dim_x = gridDim.x, grid_dim_y = gridDim.y;
     const int block_dim_x = BLOCK_DIM_X, block_dim_y = BLOCK_DIM_Y;
     const int block_idx_x = blockIdx.x, block_idx_y = blockIdx.y;
@@ -27,7 +29,7 @@ __global__ void tsgemm(int m, int n, double *A, const int lda, double *B,
             int col_idx = col_repeat_idx * grid_dim_y * block_dim_y +
                           block_idx_y * block_dim_y + thread_idx_y;
             if (col_idx >= n) break;
-            double sum = 0;
+            T sum = 0;
             for (int k = 0; k < n; ++k) {
                 sum += A[row_idx + k * lda] * B[k + col_idx * ldb];
             }
@@ -35,12 +37,20 @@ __global__ void tsgemm(int m, int n, double *A, const int lda, double *B,
         }
     }
 }
+template __global__ void tsgemm<double>(int m, int n, double *A, const int lda,
+                                        double *B, const int ldb, double *C,
+                                        const int ldc);
+template __global__ void tsgemm<float>(int m, int n, float *A, const int lda,
+                                        float *B, const int ldb, float *C,
+                                        const int ldc);                                        
 
 template <typename T>
 void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work, int ldwork) {
     T *d_work1 = d_work + m, *d_work2 = d_work;
-    dim3 block_dim(BLOCK_DIM_X, BLOCK_DIM_Y);  // if change block_dim, also change acc_per_thread
-                             // and q_per_thread mannually in kernelQR.h
+    dim3 block_dim(
+        BLOCK_DIM_X,
+        BLOCK_DIM_Y);  // if change block_dim, also change acc_per_thread
+                       // and q_per_thread mannually in kernelQR.h
     int max_grid_size = NUM_SM * BLOCK_SIZE;
     if (m > (max_grid_size / n) * max_grid_size) {
         printf("not supported size\n");
@@ -107,6 +117,7 @@ void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work, int ldwork) {
             m, n, A, lda, R, ldr, d_work2, ldwork);
     }
 }
-
 template void tsqr<double>(int m, int n, double *A, int lda, double *R, int ldr,
                            double *d_work, int ldwork);
+template void tsqr<float>(int m, int n, float *A, int lda, float *R, int ldr,
+                           float *d_work, int ldwork);                           

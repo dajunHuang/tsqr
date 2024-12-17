@@ -19,8 +19,6 @@ void test_tsqr(int m, int n) {
     cublasHandle_t cublasH = NULL;
     cudaStream_t stream = NULL;
 
-    double one = 1, zero = 0, minus_one = -1;
-
     std::vector<T> A(m * n, 0);
     std::vector<T> A_from_gpu(m * n, 0);
     std::vector<T> R_from_gpu(n * n, 0);
@@ -33,12 +31,8 @@ void test_tsqr(int m, int n) {
 
     const int lda = m;
     const int ldr = n;
-    const int ldqtq = n;
-    const int ldqr = m;
     T *d_A = nullptr;
     T *d_R = nullptr;
-    T *d_QTQ = nullptr;
-    T *d_QR = nullptr;
     T *d_work = nullptr;
 
     /* step 1: create cusolver handle, bind a stream */
@@ -52,9 +46,6 @@ void test_tsqr(int m, int n) {
     /* step 2: copy A to device */
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(T) * m * n));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_R), sizeof(T) * n * n));
-    CUDA_CHECK(
-        cudaMalloc(reinterpret_cast<void **>(&d_QTQ), sizeof(T) * n * n));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_QR), sizeof(T) * m * n));
 
     const int ldwork = m + NUM_SM * BLOCK_SIZE; // m + max_grid_size
 
@@ -74,44 +65,7 @@ void test_tsqr(int m, int n) {
     // printf("Q\n");
     // print_device_matrix(d_A, lda, m < 32 ? m : 32, n < 32 ? n : 32);
 
-    // QR = Q * R
-    cublasDgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &one, d_A, lda, d_R,
-                ldr, &zero, d_QR, ldqr);
-
-    // move QR to host memory
-    CUDA_CHECK(cudaMemcpyAsync(A_from_gpu.data(), d_QR,
-                               sizeof(T) * A_from_gpu.size(),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
-
-    // compare QR with original A
-    if (!all_close(A_from_gpu.data(), A.data(), m, n, lda, 1.0e-4, 1.0e-5)) {
-        std::cout << "Error: tsqr" << std::endl;
-        exit(-1);
-    }
-
-    // d_QTQ = I - Q^T * Q
-    init_identity_matrix<<<1, 1>>>(d_QTQ, ldqtq, n, n);
-    cublasDgemm(cublasH, CUBLAS_OP_T, CUBLAS_OP_N, n, n, m, &minus_one, d_A,
-                lda, d_A, lda, &one, d_QTQ, ldqtq);
-    T QTQ_2_norm = get_matrix_2_norm(cusolverH, n, n, d_QTQ, ldqtq);
-
-    // d_QR = A
-    CUDA_CHECK(cudaMemcpy(d_QR, A.data(), sizeof(T) * A.size(),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaDeviceSynchronize());
-    T A_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
-
-    // d_QR = A - QR
-    CUDA_CHECK(cudaMemcpy(d_QR, A.data(), sizeof(T) * A.size(),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaDeviceSynchronize());
-    cublasDgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &minus_one, d_A,
-                lda, d_R, ldr, &one, d_QR, ldqr);
-    T QR_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
-
-    CUDA_CHECK(cudaFree(d_QTQ));
-    CUDA_CHECK(cudaFree(d_QR));
+    check_QR_accuracy<T>(cusolverH, cublasH, stream, m, n, d_A, lda, d_R, ldr, A_from_gpu, A);
 
     cudaEvent_t start, stop;
     float time = 0, temp_time = 0;
@@ -150,8 +104,7 @@ void test_tsqr(int m, int n) {
 
     CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\ntsqr Latency: %f ms\n",
-           QR_2_norm / A_2_norm, QTQ_2_norm, time);
+    printf("tsqr Latency: %f ms\n",time);
 
     /* free resources */
     CUDA_CHECK(cudaFree(d_A));
@@ -181,7 +134,7 @@ int main(int argc, char *argv[]) {
     if (0 == dataType) {
         // test_tsqr<half>(m, n);
     } else if (1 == dataType) {
-        // test_tsqr<float>(m, n);
+        test_tsqr<float>(m, n);
     } else if (2 == dataType) {
         test_tsqr<double>(m, n);
     }
