@@ -4,9 +4,9 @@
 #define BLOCK_SIZE 128
 
 #define BLOCK_DIM_X 32
-#define BLOCK_DIM_Y 32
+#define BLOCK_DIM_Y 16
 #define NUM_Q_ROW (BLOCK_SIZE + BLOCK_DIM_X - 1) / BLOCK_DIM_X
-#define NUM_Q_COL 1  // (n + BLOCK_DIM_Y - 1) / BLOCK_DIM_Y;
+#define NUM_Q_COL 2  // (n + BLOCK_DIM_Y - 1) / BLOCK_DIM_Y;
 #define MAX_N 128
 #define MAX_REDUCTION_TIME 16
 
