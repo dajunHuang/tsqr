@@ -74,8 +74,8 @@ void test_tsqr(int block_size, int m, int n) {
     // printf("A\n");
     // print_device_matrix(d_A, lda, m < 169 ? m : 169, 32);
     // printf("tsqr\n");
-    tsqr<T>(cublasH, block_size, m, n, d_A, lda, d_R, ldr, d_work1, ldwork1,
-            d_work2, ldwork2);
+    tsqr<T>(block_size, m, n, d_A, lda, d_R, ldr, d_work1, ldwork1, d_work2,
+            ldwork2);
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK_LAST_ERROR();
     // printf("R\n");
@@ -128,22 +128,20 @@ void test_tsqr(int block_size, int m, int n) {
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
     for (int i{0}; i < NUM_WARPUP; ++i) {
-        cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(),
-        cudaMemcpyHostToDevice); CUDA_CHECK(cudaDeviceSynchronize());
-        tsqr<T>(cublasH, block_size, m, n, d_A, lda, d_R, ldr, d_work1,
-        ldwork1,
-                d_work2, ldwork2);
+        cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaDeviceSynchronize());
+        tsqr<T>(block_size, m, n, d_A, lda, d_R, ldr, d_work1, ldwork1, d_work2,
+                ldwork2);
         CUDA_CHECK(cudaDeviceSynchronize());
     }
     CUDA_CHECK(cudaStreamSynchronize(stream));
     for (int i{0}; i < NUM_REPEAT; ++i) {
-        cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(),
-        cudaMemcpyHostToDevice); CUDA_CHECK(cudaDeviceSynchronize());
+        cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaDeviceSynchronize());
         CUDA_CHECK(cudaEventRecord(start, stream));
 
-        tsqr<T>(cublasH, block_size, m, n, d_A, lda, d_R, ldr, d_work1,
-        ldwork1,
-                d_work2, ldwork2);
+        tsqr<T>(block_size, m, n, d_A, lda, d_R, ldr, d_work1, ldwork1, d_work2,
+                ldwork2);
 
         CUDA_CHECK(cudaEventRecord(stop, stream));
         CUDA_CHECK(cudaDeviceSynchronize());

@@ -5,8 +5,8 @@
 #include <cmath>
 #include <iostream>
 
-#include "utils.h"
 #include "kernelQR.h"
+#include "utils.h"
 
 __global__ void tsgemm(int m, int n, double *A, const int lda, double *B,
                        const int ldb, double *C, const int ldc) {
@@ -37,11 +37,9 @@ __global__ void tsgemm(int m, int n, double *A, const int lda, double *B,
     }
 }
 
-
 template <typename T>
-void tsqr(cublasHandle_t cublas_handle, int block_size, int m, int n, T *A,
-          int lda, T *R, int ldr, T *d_work1, int ldwork1, T *d_work2,
-          int ldwork2) {
+void tsqr(int block_size, int m, int n, T *A, int lda, T *R, int ldr,
+          T *d_work1, int ldwork1, T *d_work2, int ldwork2) {
     dim3 block_dim(32, 32);  // if change block_dim, also change acc_per_thread
                              // and q_per_thread mannually in kernelQR.h
     int max_grid_size = 108 * block_size;
@@ -116,7 +114,6 @@ void tsqr(cublasHandle_t cublas_handle, int block_size, int m, int n, T *A,
     }
 }
 
-template void tsqr<double>(cublasHandle_t cublas_handle, int block_size, int m,
-                           int n, double *A, int lda, double *R, int ldr,
-                           double *d_work1, int lwork1, double *d_work2,
-                           int lwork2);
+template void tsqr<double>(int block_size, int m, int n, double *A, int lda,
+                           double *R, int ldr, double *d_work1, int lwork1,
+                           double *d_work2, int lwork2);
