@@ -315,19 +315,20 @@ float get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, float *A, in
 template <typename T>
 void check_QR_accuracy(cusolverDnHandle_t cusolverH, cublasHandle_t cublasH,
                        cudaStream_t stream, int m, int n, T *d_A, int ldq, T *R,
-                       int ldr, std::vector<T> &A_from_gpu, std::vector<T> &A);
+                       int ldr, std::vector<T> &A);
 template <>
 void check_QR_accuracy<double>(cusolverDnHandle_t cusolverH,
                                cublasHandle_t cublasH, cudaStream_t stream, int m, int n,
                                double *d_A, int lda,
                                double *d_R, int ldr,
-                               std::vector<double> &A_from_gpu,
                                std::vector<double> &A) {
     double one = 1, zero = 0, minus_one = -1;
     const int ldqtq = n;
     const int ldqr = m;
     double *d_QTQ = nullptr;
     double *d_QR = nullptr;
+
+    std::vector<double> A_from_gpu(m * n, 0);
 
     CUDA_CHECK(
         cudaMalloc(reinterpret_cast<void **>(&d_QTQ), sizeof(double) * n * n));
@@ -380,13 +381,14 @@ void check_QR_accuracy<float>(cusolverDnHandle_t cusolverH,
                                cublasHandle_t cublasH, cudaStream_t stream, int m, int n,
                                float *d_A, int lda,
                                float *d_R, int ldr,
-                               std::vector<float> &A_from_gpu,
                                std::vector<float> &A) {
     float one = 1, zero = 0, minus_one = -1;
     const int ldqtq = n;
     const int ldqr = m;
     float *d_QTQ = nullptr;
     float *d_QR = nullptr;
+
+    std::vector<float> A_from_gpu(m * n, 0);
 
     CUDA_CHECK(
         cudaMalloc(reinterpret_cast<void **>(&d_QTQ), sizeof(float) * n * n));

@@ -47,7 +47,7 @@ void test_tsqr(int m, int n) {
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(T) * m * n));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_R), sizeof(T) * n * n));
 
-    const int ldwork = m + NUM_SM * BLOCK_SIZE; // m + max_grid_size
+    const int ldwork = 2 * NUM_SM * BLOCK_SIZE;
 
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_work),
                           sizeof(T) * ldwork * n));
@@ -65,7 +65,7 @@ void test_tsqr(int m, int n) {
     // printf("Q\n");
     // print_device_matrix(d_A, lda, m < 32 ? m : 32, n < 32 ? n : 32);
 
-    check_QR_accuracy<T>(cusolverH, cublasH, stream, m, n, d_A, lda, d_R, ldr, A_from_gpu, A);
+    check_QR_accuracy<T>(cusolverH, cublasH, stream, m, n, d_A, lda, d_R, ldr, A);
 
     cudaEvent_t start, stop;
     float time = 0, temp_time = 0;
@@ -131,9 +131,7 @@ int main(int argc, char *argv[]) {
         dataType = atoi(argv[3]);
     }
 
-    if (0 == dataType) {
-        // test_tsqr<half>(m, n);
-    } else if (1 == dataType) {
+    if (1 == dataType) {
         test_tsqr<float>(m, n);
     } else if (2 == dataType) {
         test_tsqr<double>(m, n);
