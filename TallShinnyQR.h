@@ -48,7 +48,7 @@ template <typename T>
 void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work, int ldwork) {
     int max_grid_size = NUM_SM * BLOCK_SIZE;
     T *d_work1 = d_work, *d_work2 = d_work + max_grid_size;
-    
+
     dim3 block_dim(
         BLOCK_DIM_X,
         BLOCK_DIM_Y);  // if change block_dim, also change acc_per_thread
@@ -87,9 +87,9 @@ void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work, int ldwork) {
         block_num = NUM_SM;
         for (int i = 0; i < grid_num; ++i) {
             int grid_size = min(m - i * max_grid_size, max_grid_size);
-            tsgemm<<<block_num, block_dim>>>(grid_size, n, &A[i * max_grid_size],
-                                            lda, &d_work1[i * n], ldwork,
-                                            &A[i * max_grid_size], lda);
+            tsgemm<<<block_num, block_dim>>>(
+                grid_size, n, &A[i * max_grid_size], lda, &d_work1[i * n],
+                ldwork, &A[i * max_grid_size], lda);
         }
     } else {
         assert((m % BLOCK_SIZE) % n == 0);

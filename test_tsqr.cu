@@ -15,8 +15,6 @@
 
 template <typename T>
 void test_tsqr(int m, int n) {
-    cusolverDnHandle_t cusolverH = NULL;
-    cublasHandle_t cublasH = NULL;
     cudaStream_t stream = NULL;
 
     std::vector<T> A(m * n, 0);
@@ -35,13 +33,7 @@ void test_tsqr(int m, int n) {
     T *d_R = nullptr;
     T *d_work = nullptr;
 
-    /* step 1: create cusolver handle, bind a stream */
-    CUSOLVER_CHECK(cusolverDnCreate(&cusolverH));
-    CUBLAS_CHECK(cublasCreate(&cublasH));
-
     CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
-    CUSOLVER_CHECK(cusolverDnSetStream(cusolverH, stream));
-    CUBLAS_CHECK(cublasSetStream(cublasH, stream));
 
     /* step 2: copy A to device */
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(T) * m * n));
@@ -49,8 +41,8 @@ void test_tsqr(int m, int n) {
 
     const int ldwork = 2 * NUM_SM * BLOCK_SIZE;
 
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_work),
-                          sizeof(T) * ldwork * n));
+    CUDA_CHECK(
+        cudaMalloc(reinterpret_cast<void **>(&d_work), sizeof(T) * ldwork * n));
 
     CUDA_CHECK(cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(),
                           cudaMemcpyHostToDevice));
@@ -65,7 +57,7 @@ void test_tsqr(int m, int n) {
     // printf("Q\n");
     // print_device_matrix(d_A, lda, m < 32 ? m : 32, n < 32 ? n : 32);
 
-    check_QR_accuracy<T>(cusolverH, cublasH, stream, m, n, d_A, lda, d_R, ldr, A);
+    check_QR_accuracy<T>(m, n, d_A, lda, d_R, ldr, A);
 
     cudaEvent_t start, stop;
     float time = 0, temp_time = 0;
@@ -104,16 +96,13 @@ void test_tsqr(int m, int n) {
 
     CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    printf("tsqr Latency: %f ms\n",time);
+    printf("tsqr Latency: %f ms\n", time);
 
     /* free resources */
+    CUDA_CHECK(cudaStreamDestroy(stream));
     CUDA_CHECK(cudaFree(d_A));
     CUDA_CHECK(cudaFree(d_R));
     CUDA_CHECK(cudaFree(d_work));
-    CUBLAS_CHECK(cublasDestroy(cublasH));
-    CUSOLVER_CHECK(cusolverDnDestroy(cusolverH));
-
-    CUDA_CHECK(cudaStreamDestroy(stream));
 
     CUDA_CHECK(cudaDeviceReset());
 }

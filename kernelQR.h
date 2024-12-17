@@ -62,9 +62,9 @@ template __device__ void block_gemm<double>(int m, int n, double *C,
                                             const int lda, double *B,
                                             const int ldb);
 template __device__ void block_gemm<float>(int m, int n, float *C,
-                                            const int ldc, float *A,
-                                            const int lda, float *B,
-                                            const int ldb);                                            
+                                           const int ldc, float *A,
+                                           const int lda, float *B,
+                                           const int ldb);
 
 template <typename T>
 __device__ void qr_kernel(const int m, const int n, T *A, const int lda, T *Q,
@@ -484,7 +484,7 @@ template __global__ void tsqr_kernel<double>(const int m, const int n,
                                              double *A, const int lda,
                                              double *R, const int ldr,
                                              double *work, const int ldwork);
-template __global__ void tsqr_kernel<float>(const int m, const int n,
-                                             float *A, const int lda,
-                                             float *R, const int ldr,
-                                             float *work, const int ldwork);                                             
+template __global__ void tsqr_kernel<float>(const int m, const int n, float *A,
+                                            const int lda, float *R,
+                                            const int ldr, float *work,
+                                            const int ldwork);

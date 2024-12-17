@@ -175,8 +175,8 @@ bool all_close(T const *A, T const *A_ref, size_t m, size_t n, size_t lda,
 }
 template bool all_close(double const *A, double const *A_ref, size_t m,
                         size_t n, size_t lda, double abs_tol, double rel_tol);
-template bool all_close(float const *A, float const *A_ref, size_t m,
-                        size_t n, size_t lda, float abs_tol, float rel_tol);                        
+template bool all_close(float const *A, float const *A_ref, size_t m, size_t n,
+                        size_t lda, float abs_tol, float rel_tol);
 
 template <typename T>
 __global__ void init_identity_matrix(T *matrix, int ldm, int m, int n) {
@@ -194,7 +194,7 @@ __global__ void init_identity_matrix(T *matrix, int ldm, int m, int n) {
 template __global__ void init_identity_matrix<double>(double *matrix, int ldm,
                                                       int m, int n);
 template __global__ void init_identity_matrix<float>(float *matrix, int ldm,
-                                                      int m, int n);                                                      
+                                                     int m, int n);
 
 template <typename T>
 __global__ void copy_matrix(int m, int n, T *dst, int ldst, T *src, int ldsrc) {
@@ -206,13 +206,14 @@ __global__ void copy_matrix(int m, int n, T *dst, int ldst, T *src, int ldsrc) {
 }
 template __global__ void copy_matrix<double>(int m, int n, double *dst,
                                              int ldst, double *src, int ldsrc);
-template __global__ void copy_matrix<float>(int m, int n, float *dst,
-                                             int ldst, float *src, int ldsrc);                                             
+template __global__ void copy_matrix<float>(int m, int n, float *dst, int ldst,
+                                            float *src, int ldsrc);
 
 template <typename T>
 T get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, T *A, int lda);
 template <>
-double get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, double *A, int lda) {
+double get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, double *A,
+                         int lda) {
     double s = 0;
     const int ldu = m;   // ldu >= m
     const int ldvt = n;  // ldvt >= n if jobu = 'A'
@@ -227,14 +228,14 @@ double get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, double *A, 
 
     CUSOLVER_CHECK(cusolverDnDgesvd_bufferSize(cusolverH, m, n, &ldwork));
 
-    CUDA_CHECK(
-        cudaMalloc(reinterpret_cast<void **>(&d_work), ldwork * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_work),
+                          ldwork * sizeof(double)));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&devInfo), sizeof(int)));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_S), n * sizeof(double)));
     CUDA_CHECK(
         cudaMalloc(reinterpret_cast<void **>(&d_U), ldu * m * sizeof(double)));
-    CUDA_CHECK(
-        cudaMalloc(reinterpret_cast<void **>(&d_VT), ldvt * n * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_VT),
+                          ldvt * n * sizeof(double)));
 
     CUSOLVER_CHECK(cusolverDnDgesvd(cusolverH, 'N', 'N', m, n, A, lda, d_S, d_U,
                                     ldu, d_VT, ldvt, d_work, ldwork, nullptr,
@@ -262,7 +263,8 @@ double get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, double *A, 
     return s;
 }
 template <>
-float get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, float *A, int lda) {
+float get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, float *A,
+                        int lda) {
     float s = 0;
     const int ldu = m;   // ldu >= m
     const int ldvt = n;  // ldvt >= n if jobu = 'A'
@@ -313,15 +315,17 @@ float get_matrix_2_norm(cusolverDnHandle_t cusolverH, int m, int n, float *A, in
 }
 
 template <typename T>
-void check_QR_accuracy(cusolverDnHandle_t cusolverH, cublasHandle_t cublasH,
-                       cudaStream_t stream, int m, int n, T *d_A, int ldq, T *R,
-                       int ldr, std::vector<T> &A);
+void check_QR_accuracy(int m, int n, T *d_A, int ldq, T *R, int ldr,
+                       std::vector<T> &A);
 template <>
-void check_QR_accuracy<double>(cusolverDnHandle_t cusolverH,
-                               cublasHandle_t cublasH, cudaStream_t stream, int m, int n,
-                               double *d_A, int lda,
-                               double *d_R, int ldr,
-                               std::vector<double> &A) {
+void check_QR_accuracy<double>(int m, int n, double *d_A, int lda, double *d_R,
+                               int ldr, std::vector<double> &A) {
+    cusolverDnHandle_t cusolverH = NULL;
+    cublasHandle_t cublasH = NULL;
+
+    CUSOLVER_CHECK(cusolverDnCreate(&cusolverH));
+    CUBLAS_CHECK(cublasCreate(&cublasH));
+
     double one = 1, zero = 0, minus_one = -1;
     const int ldqtq = n;
     const int ldqr = m;
@@ -340,10 +344,10 @@ void check_QR_accuracy<double>(cusolverDnHandle_t cusolverH,
                 ldr, &zero, d_QR, ldqr);
 
     // move QR to host memory
-    CUDA_CHECK(cudaMemcpyAsync(A_from_gpu.data(), d_QR,
-                               sizeof(double) * A_from_gpu.size(),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    CUDA_CHECK(cudaMemcpy(A_from_gpu.data(), d_QR,
+                          sizeof(double) * A_from_gpu.size(),
+                          cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     double abs_tol = 1.0e-4, rel_tol = 1.0e-5;
     // compare QR with original A
@@ -372,16 +376,22 @@ void check_QR_accuracy<double>(cusolverDnHandle_t cusolverH,
                 lda, d_R, ldr, &one, d_QR, ldqr);
     double QR_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
 
+    CUBLAS_CHECK(cublasDestroy(cublasH));
+    CUSOLVER_CHECK(cusolverDnDestroy(cusolverH));
     CUDA_CHECK(cudaFree(d_QTQ));
     CUDA_CHECK(cudaFree(d_QR));
-    printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm, QTQ_2_norm);
+    printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm,
+           QTQ_2_norm);
 }
 template <>
-void check_QR_accuracy<float>(cusolverDnHandle_t cusolverH,
-                               cublasHandle_t cublasH, cudaStream_t stream, int m, int n,
-                               float *d_A, int lda,
-                               float *d_R, int ldr,
-                               std::vector<float> &A) {
+void check_QR_accuracy<float>(int m, int n, float *d_A, int lda, float *d_R,
+                              int ldr, std::vector<float> &A) {
+    cusolverDnHandle_t cusolverH = NULL;
+    cublasHandle_t cublasH = NULL;
+
+    CUSOLVER_CHECK(cusolverDnCreate(&cusolverH));
+    CUBLAS_CHECK(cublasCreate(&cublasH));
+
     float one = 1, zero = 0, minus_one = -1;
     const int ldqtq = n;
     const int ldqr = m;
@@ -400,10 +410,10 @@ void check_QR_accuracy<float>(cusolverDnHandle_t cusolverH,
                 ldr, &zero, d_QR, ldqr);
 
     // move QR to host memory
-    CUDA_CHECK(cudaMemcpyAsync(A_from_gpu.data(), d_QR,
-                               sizeof(float) * A_from_gpu.size(),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    CUDA_CHECK(cudaMemcpy(A_from_gpu.data(), d_QR,
+                          sizeof(float) * A_from_gpu.size(),
+                          cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     float abs_tol = 1.0e-4, rel_tol = 1.0e-5;
     // compare QR with original A
@@ -432,8 +442,10 @@ void check_QR_accuracy<float>(cusolverDnHandle_t cusolverH,
                 lda, d_R, ldr, &one, d_QR, ldqr);
     float QR_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
 
+    CUBLAS_CHECK(cublasDestroy(cublasH));
+    CUSOLVER_CHECK(cusolverDnDestroy(cusolverH));
     CUDA_CHECK(cudaFree(d_QTQ));
     CUDA_CHECK(cudaFree(d_QR));
-    printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm, QTQ_2_norm);
+    printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm,
+           QTQ_2_norm);
 }
-
