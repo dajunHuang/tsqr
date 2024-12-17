@@ -39,8 +39,7 @@ void test_tsqr(int m, int n) {
     T *d_R = nullptr;
     T *d_QTQ = nullptr;
     T *d_QR = nullptr;
-    T *d_work1 = nullptr;
-    T *d_work2 = nullptr;
+    T *d_work = nullptr;
 
     /* step 1: create cusolver handle, bind a stream */
     CUSOLVER_CHECK(cusolverDnCreate(&cusolverH));
@@ -57,20 +56,17 @@ void test_tsqr(int m, int n) {
         cudaMalloc(reinterpret_cast<void **>(&d_QTQ), sizeof(T) * n * n));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_QR), sizeof(T) * m * n));
 
-    const int ldwork1 = NUM_SM * BLOCK_SIZE;
-    const int ldwork2 = m;
+    const int ldwork = m + NUM_SM * BLOCK_SIZE; // m + max_grid_size
 
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_work1),
-                          sizeof(T) * ldwork1 * n));
-    CUDA_CHECK(
-        cudaMalloc(reinterpret_cast<void **>(&d_work2), sizeof(T) * ldwork2 * n));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_work),
+                          sizeof(T) * ldwork * n));
 
     CUDA_CHECK(cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(),
                           cudaMemcpyHostToDevice));
     // printf("A\n");
     // print_device_matrix(d_A, lda, m < 169 ? m : 169, 32);
     // printf("tsqr\n");
-    tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work1, ldwork1, d_work2, ldwork2);
+    tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work, ldwork);
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK_LAST_ERROR();
     // printf("R\n");
@@ -125,7 +121,7 @@ void test_tsqr(int m, int n) {
     for (int i{0}; i < NUM_WARPUP; ++i) {
         cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
         CUDA_CHECK(cudaDeviceSynchronize());
-        tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work1, ldwork1, d_work2, ldwork2);
+        tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work, ldwork);
         CUDA_CHECK(cudaDeviceSynchronize());
     }
     CUDA_CHECK(cudaStreamSynchronize(stream));
@@ -134,7 +130,7 @@ void test_tsqr(int m, int n) {
         CUDA_CHECK(cudaDeviceSynchronize());
         CUDA_CHECK(cudaEventRecord(start, stream));
 
-        tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work1, ldwork1, d_work2, ldwork2);
+        tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work, ldwork);
 
         CUDA_CHECK(cudaEventRecord(stop, stream));
         CUDA_CHECK(cudaDeviceSynchronize());
@@ -160,8 +156,7 @@ void test_tsqr(int m, int n) {
     /* free resources */
     CUDA_CHECK(cudaFree(d_A));
     CUDA_CHECK(cudaFree(d_R));
-    CUDA_CHECK(cudaFree(d_work1));
-    CUDA_CHECK(cudaFree(d_work2));
+    CUDA_CHECK(cudaFree(d_work));
     CUBLAS_CHECK(cublasDestroy(cublasH));
     CUSOLVER_CHECK(cusolverDnDestroy(cusolverH));
 

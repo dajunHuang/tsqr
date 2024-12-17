@@ -37,8 +37,8 @@ __global__ void tsgemm(int m, int n, double *A, const int lda, double *B,
 }
 
 template <typename T>
-void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work1, int ldwork1,
-          T *d_work2, int ldwork2) {
+void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work, int ldwork) {
+    T *d_work1 = d_work + m, *d_work2 = d_work;
     dim3 block_dim(BLOCK_DIM_X, BLOCK_DIM_Y);  // if change block_dim, also change acc_per_thread
                              // and q_per_thread mannually in kernelQR.h
     int max_grid_size = NUM_SM * BLOCK_SIZE;
@@ -65,21 +65,21 @@ void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work1, int ldwork1,
 
             int block_num = (grid_size + BLOCK_SIZE - 1) / BLOCK_SIZE;
             T *grid_A = A + i * max_grid_size, *grid_R = d_work1 + i * n;
-            int ldgrid_A = lda, ldgrid_R = ldwork1;
+            int ldgrid_A = lda, ldgrid_R = ldwork;
 
             tsqr_kernel<T><<<block_num, block_dim, share_memory_size>>>(
                 grid_size, n, grid_A, ldgrid_A, grid_R, ldgrid_R, d_work2,
-                ldwork2);
+                ldwork);
         }
         int block_num = (grid_num * n + BLOCK_SIZE - 1) / BLOCK_SIZE;
         tsqr_kernel<T><<<block_num, block_dim, share_memory_size>>>(
-            grid_num * n, n, d_work1, ldwork1, R, ldr, d_work2, ldwork2);
+            grid_num * n, n, d_work1, ldwork, R, ldr, d_work2, ldwork);
 
         int grid_dim = NUM_SM;
         for (int i = 0; i < grid_num - 1; ++i) {
             int grid_size = max_grid_size;
             tsgemm<<<grid_dim, block_dim>>>(grid_size, n, &A[i * max_grid_size],
-                                            lda, &d_work1[i * n], ldwork1,
+                                            lda, &d_work1[i * n], ldwork,
                                             &A[i * max_grid_size], lda);
         }
 
@@ -87,7 +87,7 @@ void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work1, int ldwork1,
         int last_grid_size = m - last_grid_offset;
         tsgemm<<<grid_dim, block_dim>>>(last_grid_size, n, &A[last_grid_offset],
                                         lda, &d_work1[(grid_num - 1) * n],
-                                        ldwork1, &A[last_grid_offset], lda);
+                                        ldwork, &A[last_grid_offset], lda);
 
     } else {
         assert((m % BLOCK_SIZE) % n == 0);
@@ -104,10 +104,9 @@ void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work1, int ldwork1,
 
         int block_num = (m + BLOCK_SIZE - 1) / BLOCK_SIZE;
         tsqr_kernel<T><<<block_num, block_dim, share_memory_size>>>(
-            m, n, A, lda, R, ldr, d_work2, ldwork2);
+            m, n, A, lda, R, ldr, d_work2, ldwork);
     }
 }
 
 template void tsqr<double>(int m, int n, double *A, int lda, double *R, int ldr,
-                           double *d_work1, int lwork1, double *d_work2,
-                           int lwork2);
+                           double *d_work, int ldwork);
