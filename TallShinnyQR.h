@@ -62,6 +62,9 @@ void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work, int ldwork) {
     int max_grid_size = NUM_SM * BLOCK_SIZE;
     T *d_work1 = d_work, *d_work2 = d_work + max_grid_size;
 
+    assert(m >= n);
+    assert(BLOCK_SIZE % n == 0);
+
     dim3 block_dim(
         BLOCK_DIM_X,
         BLOCK_DIM_Y);  // if change block_dim, also change acc_per_thread
@@ -74,7 +77,6 @@ void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work, int ldwork) {
 
     if (grid_num > 1) {
         assert((m % max_grid_size) % n == 0);
-        assert(BLOCK_SIZE % n == 0);
 
         int reduction_time =
             ceil((log(max_grid_size) - log(n)) / (log(BLOCK_SIZE) - log(n)));
@@ -106,10 +108,13 @@ void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work, int ldwork) {
         }
     } else {
         assert((m % BLOCK_SIZE) % n == 0);
-        assert(BLOCK_SIZE % n == 0);
 
-        int reduction_time =
-            ceil((log(m) - log(n)) / (log(BLOCK_SIZE) - log(n)));
+        int reduction_time = 0;
+        if(m == n) {
+            reduction_time = 1;
+        } else {
+            reduction_time = ceil((log(m) - log(n)) / (log(BLOCK_SIZE) - log(n)));
+        }
         // printf("size %d, reduction_time: %d\n", m, reduction_time);
         int share_memory_size = reduction_time * BLOCK_SIZE * n * sizeof(T);
 

@@ -59,35 +59,35 @@ void test_tsqr(int m, int n) {
 
     check_QR_accuracy<T>(m, n, d_A, lda, d_R, ldr, A);
 
-    // cudaEvent_t start, stop;
-    // float time = 0, temp_time = 0;
+    cudaEvent_t start, stop;
+    float time = 0, temp_time = 0;
 
-    // CUDA_CHECK(cudaEventCreate(&start));
-    // CUDA_CHECK(cudaEventCreate(&stop));
-    // for (int i{0}; i < NUM_WARPUP; ++i) {
-    //     cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
-    //     CUDA_CHECK(cudaDeviceSynchronize());
-    //     tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work, ldwork);
-    //     CUDA_CHECK(cudaDeviceSynchronize());
-    // }
-    // CUDA_CHECK(cudaStreamSynchronize(stream));
-    // for (int i{0}; i < NUM_REPEAT; ++i) {
-    //     cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
-    //     CUDA_CHECK(cudaDeviceSynchronize());
-    //     CUDA_CHECK(cudaEventRecord(start, stream));
+    CUDA_CHECK(cudaEventCreate(&start));
+    CUDA_CHECK(cudaEventCreate(&stop));
+    for (int i{0}; i < NUM_WARPUP; ++i) {
+        cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaDeviceSynchronize());
+        tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work, ldwork);
+        CUDA_CHECK(cudaDeviceSynchronize());
+    }
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    for (int i{0}; i < NUM_REPEAT; ++i) {
+        cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
+        CUDA_CHECK(cudaDeviceSynchronize());
+        CUDA_CHECK(cudaEventRecord(start, stream));
 
-    //     tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work, ldwork);
+        tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work, ldwork);
 
-    //     CUDA_CHECK(cudaEventRecord(stop, stream));
-    //     CUDA_CHECK(cudaDeviceSynchronize());
-    //     CUDA_CHECK(cudaEventSynchronize(stop));
-    //     CUDA_CHECK_LAST_ERROR();
-    //     CUDA_CHECK(cudaEventElapsedTime(&temp_time, start, stop));
-    //     time += temp_time;
-    // }
-    // time /= NUM_REPEAT;
+        CUDA_CHECK(cudaEventRecord(stop, stream));
+        CUDA_CHECK(cudaDeviceSynchronize());
+        CUDA_CHECK(cudaEventSynchronize(stop));
+        CUDA_CHECK_LAST_ERROR();
+        CUDA_CHECK(cudaEventElapsedTime(&temp_time, start, stop));
+        time += temp_time;
+    }
+    time /= NUM_REPEAT;
 
-    // printf("tsqr Latency: %f ms\n", time);
+    printf("tsqr Latency: %f ms\n", time);
 
     CUDA_CHECK(cudaMemcpyAsync(A_from_gpu.data(), d_A,
                                sizeof(T) * A_from_gpu.size(),

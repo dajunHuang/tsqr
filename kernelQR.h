@@ -4,9 +4,9 @@
 #define BLOCK_SIZE 128
 
 #define BLOCK_DIM_X 32
-#define BLOCK_DIM_Y 16
+#define BLOCK_DIM_Y 32
 #define NUM_Q_ROW (BLOCK_SIZE + BLOCK_DIM_X - 1) / BLOCK_DIM_X
-#define NUM_Q_COL 2  // (n + BLOCK_DIM_Y - 1) / BLOCK_DIM_Y;
+#define NUM_Q_COL 1  // (n + BLOCK_DIM_Y - 1) / BLOCK_DIM_Y;
 #define MAX_N 128
 #define MAX_REDUCTION_TIME 16
 
@@ -331,7 +331,7 @@ __global__ void tsqr_kernel(const int m, const int n, T *A, const int lda, T *R,
     int num_reduction_block = 0;
     int count_end_block = 0;
 
-    while (shared_all_data_height[reduction_time] > n) {
+    while (shared_all_data_height[reduction_time] > n || reduction_time == 0) {
         int all_data_height = shared_all_data_height[reduction_time];
         int block_data_height =
             min(all_data_height - block_idx_x * BLOCK_SIZE, BLOCK_SIZE);
