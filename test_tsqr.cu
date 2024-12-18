@@ -107,6 +107,7 @@ void test_tsqr(int m, int n) {
     CUDA_CHECK(cudaDeviceReset());
 }
 template void test_tsqr<double>(int m, int n);
+template void test_tsqr<float>(int m, int n);
 
 int main(int argc, char *argv[]) {
     int m = 13824, n = 32;

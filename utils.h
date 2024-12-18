@@ -376,12 +376,13 @@ void check_QR_accuracy<double>(int m, int n, double *d_A, int lda, double *d_R,
                 lda, d_R, ldr, &one, d_QR, ldqr);
     double QR_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
 
+    printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm,
+           QTQ_2_norm);
+           
     CUBLAS_CHECK(cublasDestroy(cublasH));
     CUSOLVER_CHECK(cusolverDnDestroy(cusolverH));
     CUDA_CHECK(cudaFree(d_QTQ));
     CUDA_CHECK(cudaFree(d_QR));
-    printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm,
-           QTQ_2_norm);
 }
 template <>
 void check_QR_accuracy<float>(int m, int n, float *d_A, int lda, float *d_R,
@@ -442,10 +443,11 @@ void check_QR_accuracy<float>(int m, int n, float *d_A, int lda, float *d_R,
                 lda, d_R, ldr, &one, d_QR, ldqr);
     float QR_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
 
+    printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm,
+           QTQ_2_norm);
+
     CUBLAS_CHECK(cublasDestroy(cublasH));
     CUSOLVER_CHECK(cusolverDnDestroy(cusolverH));
     CUDA_CHECK(cudaFree(d_QTQ));
     CUDA_CHECK(cudaFree(d_QR));
-    printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm,
-           QTQ_2_norm);
 }

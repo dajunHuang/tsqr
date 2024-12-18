@@ -17,9 +17,8 @@ __global__ void tsgemm(int m, int n, T *A, const int lda, T *B, const int ldb,
     const int thread_idx_x = threadIdx.x, thread_idx_y = threadIdx.y;
     const int num_row =
         (m + block_num * block_dim_x - 1) / block_num * block_dim_x;
-    const int num_col =
-        (n + block_dim_y - 1) / block_dim_y;
-    
+    const int num_col = (n + block_dim_y - 1) / block_dim_y;
+
     T c_per_thread[NUM_Q_ROW * NUM_Q_COL];
 
     for (int row_repeat_idx = 0; row_repeat_idx < num_row; ++row_repeat_idx) {
@@ -46,7 +45,8 @@ __global__ void tsgemm(int m, int n, T *A, const int lda, T *B, const int ldb,
              ++col_repeat_idx) {
             int col_idx = col_repeat_idx * block_dim_y + thread_idx_y;
             if (col_idx >= n) break;
-            C[row_idx + col_idx * ldc] = c_per_thread[row_repeat_idx + col_repeat_idx * NUM_Q_ROW];
+            C[row_idx + col_idx * ldc] =
+                c_per_thread[row_repeat_idx + col_repeat_idx * NUM_Q_ROW];
         }
     }
 }
@@ -73,6 +73,8 @@ void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work, int ldwork) {
         printf("not supported size\n");
         return;
     }
+    // printf("max_grid_size: %d, max_supported_size: %d\n", max_grid_size,
+    //        (max_grid_size / n) * max_grid_size);
     int grid_num = (m + max_grid_size - 1) / max_grid_size;
 
     if (grid_num > 1) {
@@ -110,10 +112,11 @@ void tsqr(int m, int n, T *A, int lda, T *R, int ldr, T *d_work, int ldwork) {
         assert((m % BLOCK_SIZE) % n == 0);
 
         int reduction_time = 0;
-        if(m == n) {
+        if (m == n) {
             reduction_time = 1;
         } else {
-            reduction_time = ceil((log(m) - log(n)) / (log(BLOCK_SIZE) - log(n)));
+            reduction_time =
+                ceil((log(m) - log(n)) / (log(BLOCK_SIZE) - log(n)));
         }
         // printf("size %d, reduction_time: %d\n", m, reduction_time);
         int share_memory_size = reduction_time * BLOCK_SIZE * n * sizeof(T);
