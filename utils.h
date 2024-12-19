@@ -340,8 +340,8 @@ void check_QR_accuracy<double>(int m, int n, double *d_A, int lda, double *d_R,
         cudaMalloc(reinterpret_cast<void **>(&d_QR), sizeof(double) * m * n));
 
     // QR = Q * R
-    cublasDgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &one, d_A, lda, d_R,
-                ldr, &zero, d_QR, ldqr);
+    CUBLAS_CHECK(cublasDgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &one,
+                             d_A, lda, d_R, ldr, &zero, d_QR, ldqr));
 
     // move QR to host memory
     CUDA_CHECK(cudaMemcpy(A_from_gpu.data(), d_QR,
@@ -358,8 +358,9 @@ void check_QR_accuracy<double>(int m, int n, double *d_A, int lda, double *d_R,
 
     // d_QTQ = I - Q^T * Q
     init_identity_matrix<<<1, 1>>>(d_QTQ, ldqtq, n, n);
-    cublasDgemm(cublasH, CUBLAS_OP_T, CUBLAS_OP_N, n, n, m, &minus_one, d_A,
-                lda, d_A, lda, &one, d_QTQ, ldqtq);
+    CUBLAS_CHECK(cublasDgemm(cublasH, CUBLAS_OP_T, CUBLAS_OP_N, n, n, m,
+                             &minus_one, d_A, lda, d_A, lda, &one, d_QTQ,
+                             ldqtq));
     double QTQ_2_norm = get_matrix_2_norm(cusolverH, n, n, d_QTQ, ldqtq);
 
     // d_QR = A
@@ -372,13 +373,13 @@ void check_QR_accuracy<double>(int m, int n, double *d_A, int lda, double *d_R,
     CUDA_CHECK(cudaMemcpy(d_QR, A.data(), sizeof(double) * A.size(),
                           cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaDeviceSynchronize());
-    cublasDgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &minus_one, d_A,
-                lda, d_R, ldr, &one, d_QR, ldqr);
+    CUBLAS_CHECK(cublasDgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n,
+                             &minus_one, d_A, lda, d_R, ldr, &one, d_QR, ldqr));
     double QR_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
 
     printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm,
            QTQ_2_norm);
-           
+
     CUBLAS_CHECK(cublasDestroy(cublasH));
     CUSOLVER_CHECK(cusolverDnDestroy(cusolverH));
     CUDA_CHECK(cudaFree(d_QTQ));
@@ -407,8 +408,8 @@ void check_QR_accuracy<float>(int m, int n, float *d_A, int lda, float *d_R,
         cudaMalloc(reinterpret_cast<void **>(&d_QR), sizeof(float) * m * n));
 
     // QR = Q * R
-    cublasSgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &one, d_A, lda, d_R,
-                ldr, &zero, d_QR, ldqr);
+    CUBLAS_CHECK(cublasSgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &one,
+                             d_A, lda, d_R, ldr, &zero, d_QR, ldqr));
 
     // move QR to host memory
     CUDA_CHECK(cudaMemcpy(A_from_gpu.data(), d_QR,
@@ -425,8 +426,9 @@ void check_QR_accuracy<float>(int m, int n, float *d_A, int lda, float *d_R,
 
     // d_QTQ = I - Q^T * Q
     init_identity_matrix<<<1, 1>>>(d_QTQ, ldqtq, n, n);
-    cublasSgemm(cublasH, CUBLAS_OP_T, CUBLAS_OP_N, n, n, m, &minus_one, d_A,
-                lda, d_A, lda, &one, d_QTQ, ldqtq);
+    CUBLAS_CHECK(cublasSgemm(cublasH, CUBLAS_OP_T, CUBLAS_OP_N, n, n, m,
+                             &minus_one, d_A, lda, d_A, lda, &one, d_QTQ,
+                             ldqtq));
     float QTQ_2_norm = get_matrix_2_norm(cusolverH, n, n, d_QTQ, ldqtq);
 
     // d_QR = A
@@ -439,8 +441,8 @@ void check_QR_accuracy<float>(int m, int n, float *d_A, int lda, float *d_R,
     CUDA_CHECK(cudaMemcpy(d_QR, A.data(), sizeof(float) * A.size(),
                           cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaDeviceSynchronize());
-    cublasSgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n, &minus_one, d_A,
-                lda, d_R, ldr, &one, d_QR, ldqr);
+    CUBLAS_CHECK(cublasSgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, m, n, n,
+                             &minus_one, d_A, lda, d_R, ldr, &one, d_QR, ldqr));
     float QR_2_norm = get_matrix_2_norm(cusolverH, m, n, d_QR, ldqr);
 
     printf("|A-QR|/|A| = %.17f, |I-Q^TQ| = %.17f\n", QR_2_norm / A_2_norm,
