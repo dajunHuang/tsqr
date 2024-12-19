@@ -3,7 +3,7 @@
 #define NUM_SM 108
 #define BLOCK_SIZE 128
 
-#define BLOCK_DIM_Y 32
+#define BLOCK_DIM_Y 16
 #define NUM_Q_COL 2  // (n + BLOCK_DIM_Y - 1) / BLOCK_DIM_Y;
 #define BLOCK_DIM_X 32
 #define NUM_Q_ROW (BLOCK_SIZE + BLOCK_DIM_X - 1) / BLOCK_DIM_X
@@ -297,9 +297,11 @@ template __device__ void qr_kernel<double>(const int m, const int n, double *A,
 __device__ volatile int sync_counter = 0;
 
 template <typename T>
-__global__ void tsqr_kernel(const int m, const int n, T *A, const int lda, T *R,
-                            const int ldr, T *work, const int ldwork) {
+__global__ void tsqr_kernel(const int m_total, int m_each_max, const int n,
+                            T *A, const int lda, T *R, const int ldr, T *work,
+                            const int ldwork) {
     // 创建shared memory，让整个block的线程能够进行数据共享
+    const int ldsa = BLOCK_SIZE;
     shared_memory<T> shared;
     T *all_shared_A = shared.get_pointer();
 
@@ -313,178 +315,193 @@ __global__ void tsqr_kernel(const int m, const int n, T *A, const int lda, T *R,
     const int block_dim_x = BLOCK_DIM_X;
     const int block_dim_y = BLOCK_DIM_Y;
 
-    if (thread_idx_x == 0 && thread_idx_y == 0) {
-        if (block_idx_x == 0) {
-            sync_counter = 0;
-        }
-        reduction_time = 0;
-        shared_all_data_height[0] = m;
-        // if (block_idx_x == 0) {
-        //     printf("shared_all_data_height[%d] = %d\n", reduction_time,
-        //     m);
-        // }
-    }
+    int m = 0;
+    const int grid_num = (m_total + m_each_max - 1) / m_each_max;
 
-    __syncthreads();
-
-    const int ldsa = BLOCK_SIZE;
-    int num_reduction_block = 0;
-    int count_end_block = 0;
-
-    while (shared_all_data_height[reduction_time] > n || reduction_time == 0) {
-        int all_data_height = shared_all_data_height[reduction_time];
-        int block_data_height =
-            min(all_data_height - block_idx_x * BLOCK_SIZE, BLOCK_SIZE);
-
-        num_reduction_block = (all_data_height + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        count_end_block += num_reduction_block;
-
-        if (block_data_height > 0) {
-            T *A_from = &A[block_idx_x * BLOCK_SIZE];
-            T *Q_to = &all_shared_A[reduction_time * n * ldsa];
-            T *R_to;
-            int lda_from = lda, ldq_to = ldsa, ldr_to = 0;
-            if (all_data_height <= BLOCK_SIZE) {
-                R_to = R;
-                ldr_to = ldr;
-            } else {
-                R_to = &A[block_idx_x * n];
-                ldr_to = lda;
-            }
-
-            qr_kernel(block_data_height, n, A_from, lda_from, Q_to, ldq_to,
-                      R_to, ldr_to, shared_RR);
-
-            __threadfence();
-            __syncthreads();
-            if (thread_idx_x == 0 && thread_idx_y == 0) {
-                atomicAdd((int *)&sync_counter, 1);
-            }
-        }
-
-        while (sync_counter < count_end_block) {
-        }
+    for (int grid_idx = 0; grid_idx < grid_num; ++grid_idx) {
+        m = min(m_total - grid_idx * m_each_max, m_each_max);
 
         if (thread_idx_x == 0 && thread_idx_y == 0) {
-            all_data_height =
-                ((all_data_height + BLOCK_SIZE - 1) / BLOCK_SIZE) * n;
-            shared_all_data_height[++reduction_time] = all_data_height;
+            if (block_idx_x == 0) {
+                sync_counter = 0;
+            }
+            reduction_time = 0;
+            shared_all_data_height[0] = m;
             // if (block_idx_x == 0) {
             //     printf("shared_all_data_height[%d] = %d\n", reduction_time,
-            //     all_data_height);
+            //     m);
             // }
         }
 
         __syncthreads();
-    }
 
-    if (thread_idx_x == 0 && thread_idx_y == 0) {
-        reduction_time -= 1;
-    }
+        int num_reduction_block = 0;
+        int count_end_block = 0;
 
-    __syncthreads();
+        while (shared_all_data_height[reduction_time] > n ||
+               reduction_time == 0) {
+            int all_data_height = shared_all_data_height[reduction_time];
+            int block_data_height =
+                min(all_data_height - block_idx_x * BLOCK_SIZE, BLOCK_SIZE);
 
-    // perform gemm to obtain final Q
-    while (reduction_time >= 0) {
-        int all_data_height = shared_all_data_height[reduction_time];
-        int block_data_height =
-            min(all_data_height - block_idx_x * BLOCK_SIZE, BLOCK_SIZE);
+            num_reduction_block =
+                (all_data_height + BLOCK_SIZE - 1) / BLOCK_SIZE;
+            count_end_block += num_reduction_block;
 
-        num_reduction_block = (all_data_height + BLOCK_SIZE - 1) / BLOCK_SIZE;
-        count_end_block = count_end_block - num_reduction_block * 2;
-
-        if (block_data_height > 0) {
-            const int num_data_row =
-                (block_data_height + block_dim_x - 1) / block_dim_x;
-            const int num_data_col = (n + block_dim_y - 1) / block_dim_y;
-
-            T *q_next = &A[block_idx_x * n];
-            T *q_this = &all_shared_A[reduction_time * n * ldsa];
-            T *q_to = &A[block_idx_x * BLOCK_SIZE];
-            T *q_work =
-                &work[block_idx_x *
-                      BLOCK_SIZE];  // may able to remove q_work and work
-
-            if (all_data_height > BLOCK_SIZE) {
-                __threadfence();
-                __syncthreads();
-
-                if (thread_idx_x == 0 && thread_idx_y == 0) {
-                    atomicAdd((int *)&sync_counter, -1);
+            if (block_data_height > 0) {
+                T *A_from = &A[block_idx_x * BLOCK_SIZE];
+                T *Q_to = &all_shared_A[reduction_time * n * ldsa];
+                T *R_to;
+                int lda_from = lda, ldq_to = ldsa, ldr_to = 0;
+                if (all_data_height <= BLOCK_SIZE) {
+                    R_to = R;
+                    ldr_to = ldr;
+                } else {
+                    R_to = &A[block_idx_x * n];
+                    ldr_to = lda;
                 }
 
-                while (sync_counter > count_end_block + num_reduction_block) {
-                }
-
-                block_gemm(block_data_height, n, q_work, ldwork, q_this, ldsa,
-                           q_next, lda);
+                qr_kernel(block_data_height, n, A_from, lda_from, Q_to, ldq_to,
+                          R_to, ldr_to, shared_RR);
 
                 __threadfence();
                 __syncthreads();
                 if (thread_idx_x == 0 && thread_idx_y == 0) {
-                    atomicAdd((int *)&sync_counter, -1);
-                }
-
-                while (sync_counter > count_end_block) {
-                }
-
-                for (int row_load_idx = 0; row_load_idx < num_data_row;
-                     row_load_idx++) {
-                    int row_idx = thread_idx_x + row_load_idx * block_dim_x;
-                    if (row_idx < block_data_height) {
-                        for (int col_load_idx = 0; col_load_idx < num_data_col;
-                             col_load_idx++) {
-                            int col_idx =
-                                thread_idx_y + col_load_idx * block_dim_y;
-                            if (col_idx < n) {
-                                q_to[row_idx + col_idx * lda] =
-                                    q_work[row_idx + col_idx * ldwork];
-                            }
-                        }
-                    }
-                }
-            } else {  // last 128 size block in A
-                __threadfence();
-                if (thread_idx_x == 0 && thread_idx_y == 0) {
-                    atomicAdd((int *)&sync_counter, -2);
-                }
-                while (sync_counter > count_end_block) {
-                }
-
-                for (int row_load_idx = 0; row_load_idx < num_data_row;
-                     row_load_idx++) {
-                    int row_idx = thread_idx_x + row_load_idx * block_dim_x;
-                    if (row_idx < block_data_height) {
-                        for (int col_load_idx = 0; col_load_idx < num_data_col;
-                             col_load_idx++) {
-                            int col_idx =
-                                thread_idx_y + col_load_idx * block_dim_y;
-                            if (col_idx < n) {
-                                q_to[row_idx + col_idx * lda] =
-                                    q_this[row_idx + col_idx * ldsa];
-                            }
-                        }
-                    }
+                    atomicAdd((int *)&sync_counter, 1);
                 }
             }
-        } else {  // if block_data_height > 0
-            while (sync_counter > count_end_block) {
-                // printf("5 %d %d\n", sync_counter, count_end_block);
+
+            while (sync_counter < count_end_block) {
             }
+
+            if (thread_idx_x == 0 && thread_idx_y == 0) {
+                all_data_height =
+                    ((all_data_height + BLOCK_SIZE - 1) / BLOCK_SIZE) * n;
+                shared_all_data_height[++reduction_time] = all_data_height;
+                // if (block_idx_x == 0) {
+                //     printf("shared_all_data_height[%d] = %d\n",
+                //     reduction_time, all_data_height);
+                // }
+            }
+
+            __syncthreads();
         }
 
         if (thread_idx_x == 0 && thread_idx_y == 0) {
-            reduction_time--;
+            reduction_time -= 1;
         }
 
         __syncthreads();
+
+        // perform gemm to obtain final Q
+        while (reduction_time >= 0) {
+            int all_data_height = shared_all_data_height[reduction_time];
+            int block_data_height =
+                min(all_data_height - block_idx_x * BLOCK_SIZE, BLOCK_SIZE);
+
+            num_reduction_block =
+                (all_data_height + BLOCK_SIZE - 1) / BLOCK_SIZE;
+            count_end_block = count_end_block - num_reduction_block * 2;
+
+            if (block_data_height > 0) {
+                const int num_data_row =
+                    (block_data_height + block_dim_x - 1) / block_dim_x;
+                const int num_data_col = (n + block_dim_y - 1) / block_dim_y;
+
+                T *q_next = &A[block_idx_x * n];
+                T *q_this = &all_shared_A[reduction_time * n * ldsa];
+                T *q_to = &A[block_idx_x * BLOCK_SIZE];
+                T *q_work =
+                    &work[block_idx_x *
+                          BLOCK_SIZE];  // may able to remove q_work and work
+
+                if (all_data_height > BLOCK_SIZE) {
+                    __threadfence();
+                    __syncthreads();
+
+                    if (thread_idx_x == 0 && thread_idx_y == 0) {
+                        atomicAdd((int *)&sync_counter, -1);
+                    }
+
+                    while (sync_counter >
+                           count_end_block + num_reduction_block) {
+                    }
+
+                    block_gemm(block_data_height, n, q_work, ldwork, q_this,
+                               ldsa, q_next, lda);
+
+                    __threadfence();
+                    __syncthreads();
+                    if (thread_idx_x == 0 && thread_idx_y == 0) {
+                        atomicAdd((int *)&sync_counter, -1);
+                    }
+
+                    while (sync_counter > count_end_block) {
+                    }
+
+                    for (int row_load_idx = 0; row_load_idx < num_data_row;
+                         row_load_idx++) {
+                        int row_idx = thread_idx_x + row_load_idx * block_dim_x;
+                        if (row_idx < block_data_height) {
+                            for (int col_load_idx = 0;
+                                 col_load_idx < num_data_col; col_load_idx++) {
+                                int col_idx =
+                                    thread_idx_y + col_load_idx * block_dim_y;
+                                if (col_idx < n) {
+                                    q_to[row_idx + col_idx * lda] =
+                                        q_work[row_idx + col_idx * ldwork];
+                                }
+                            }
+                        }
+                    }
+                } else {  // last 128 size block in A
+                    __threadfence();
+                    if (thread_idx_x == 0 && thread_idx_y == 0) {
+                        atomicAdd((int *)&sync_counter, -2);
+                    }
+                    while (sync_counter > count_end_block) {
+                    }
+
+                    for (int row_load_idx = 0; row_load_idx < num_data_row;
+                         row_load_idx++) {
+                        int row_idx = thread_idx_x + row_load_idx * block_dim_x;
+                        if (row_idx < block_data_height) {
+                            for (int col_load_idx = 0;
+                                 col_load_idx < num_data_col; col_load_idx++) {
+                                int col_idx =
+                                    thread_idx_y + col_load_idx * block_dim_y;
+                                if (col_idx < n) {
+                                    q_to[row_idx + col_idx * lda] =
+                                        q_this[row_idx + col_idx * ldsa];
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {  // if block_data_height > 0
+                while (sync_counter > count_end_block) {
+                    // printf("5 %d %d\n", sync_counter, count_end_block);
+                }
+            }
+
+            if (thread_idx_x == 0 && thread_idx_y == 0) {
+                reduction_time--;
+            }
+
+            __syncthreads();
+        }
+
+        A += m;
+        R += n;
     }
 }
-template __global__ void tsqr_kernel<double>(const int m, const int n,
-                                             double *A, const int lda,
-                                             double *R, const int ldr,
-                                             double *work, const int ldwork);
-template __global__ void tsqr_kernel<float>(const int m, const int n, float *A,
+template __global__ void tsqr_kernel<double>(const int m_total, int m_each_max,
+                                             const int n, double *A,
+                                             const int lda, double *R,
+                                             const int ldr, double *work,
+                                             const int ldwork);
+template __global__ void tsqr_kernel<float>(const int m_total, int m_each_max,
+                                            const int n, float *A,
                                             const int lda, float *R,
                                             const int ldr, float *work,
                                             const int ldwork);

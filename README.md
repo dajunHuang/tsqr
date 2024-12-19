@@ -1,3 +1,11 @@
+# qr
+
+Usage:
+```bash
+make
+./test_qr 27648 128 2
+```
+
 # tsqr
 
 Usage:

@@ -10,8 +10,8 @@
 
 #include "block_QR.h"
 
-#define NUM_WARPUP 5
-#define NUM_REPEAT 10
+#define NUM_WARPUP 2
+#define NUM_REPEAT 5
 
 template <typename T>
 void test_qr(int m, int n) {
