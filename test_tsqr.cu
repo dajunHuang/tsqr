@@ -77,9 +77,9 @@ void test_tsqr(int m, int n) {
         CUDA_CHECK(cudaEventRecord(start, stream));
 
         tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work, ldwork);
+        CUDA_CHECK(cudaDeviceSynchronize());
 
         CUDA_CHECK(cudaEventRecord(stop, stream));
-        CUDA_CHECK(cudaDeviceSynchronize());
         CUDA_CHECK(cudaEventSynchronize(stop));
         CUDA_CHECK_LAST_ERROR();
         CUDA_CHECK(cudaEventElapsedTime(&temp_time, start, stop));
