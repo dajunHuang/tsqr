@@ -10,12 +10,17 @@
 
 #include "TallShinnyQR.h"
 
-#define NUM_WARPUP 20
-#define NUM_REPEAT 50
+#define NUM_WARPUP 2
+#define NUM_REPEAT 5
 
 template <typename T>
-void test_tsqr(int m, int n) {
+void test_tsqr(long m, long n) {
+    // cusolverDnHandle_t cusolverH = NULL;
+    cublasHandle_t cublasH = NULL;
     cudaStream_t stream = NULL;
+
+    const long lda = m;
+    const long ldr = n;
 
     std::vector<T> A(m * n, 0);
     std::vector<T> A_from_gpu(m * n, 0);
@@ -27,35 +32,32 @@ void test_tsqr(int m, int n) {
     auto const rand = [&dis, &eng]() { return dis(eng); };
     std::generate(A.begin(), A.end(), rand);
 
-    const int lda = m;
-    const int ldr = n;
     T *d_A = nullptr;
     T *d_R = nullptr;
     T *d_work = nullptr;
 
+    /* step 1: create cusolver handle, bind a stream */
+    // CUSOLVER_CHECK(cusolverDnCreate(&cusolverH));
+    CUBLAS_CHECK(cublasCreate(&cublasH));
+
     CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
+    // CUSOLVER_CHECK(cusolverDnSetStream(cusolverH, stream));
+    CUBLAS_CHECK(cublasSetStream(cublasH, stream));
 
     /* step 2: copy A to device */
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(T) * m * n));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_R), sizeof(T) * n * n));
 
-    const int ldwork = 2 * NUM_SM * BLOCK_SIZE;
+    const int ldwork = m;
 
     CUDA_CHECK(
-        cudaMalloc(reinterpret_cast<void **>(&d_work), sizeof(T) * ldwork * n));
+        cudaMalloc(reinterpret_cast<void **>(&d_work), sizeof(T) * ldwork * n * 16));
+    CUDA_CHECK(cudaMemcpyAsync(d_A, A.data(), sizeof(T) * A.size(),
+                               cudaMemcpyHostToDevice, stream));
 
-    CUDA_CHECK(cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(),
-                          cudaMemcpyHostToDevice));
-    // printf("A\n");
-    // print_device_matrix(d_A, lda, m < 169 ? m : 169, 32);
-    // printf("tsqr\n");
-    tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work, ldwork);
-    CUDA_CHECK(cudaDeviceSynchronize());
+    cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
+    tsqr<T>(cublasH, m, n, d_A, lda, d_R, ldr, d_work, ldwork);
     CUDA_CHECK_LAST_ERROR();
-    // printf("R\n");
-    // print_device_matrix(d_R, ldr, 32, 32);
-    // printf("Q\n");
-    // print_device_matrix(d_A, lda, m < 32 ? m : 32, n < 32 ? n : 32);
 
     check_QR_accuracy<T>(m, n, d_A, lda, d_R, ldr, A);
 
@@ -67,8 +69,7 @@ void test_tsqr(int m, int n) {
     for (int i{0}; i < NUM_WARPUP; ++i) {
         cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
         CUDA_CHECK(cudaDeviceSynchronize());
-        tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work, ldwork);
-        CUDA_CHECK(cudaDeviceSynchronize());
+        tsqr<T>(cublasH, m, n, d_A, lda, d_R, ldr, d_work, ldwork);
     }
     CUDA_CHECK(cudaStreamSynchronize(stream));
     for (int i{0}; i < NUM_REPEAT; ++i) {
@@ -76,7 +77,7 @@ void test_tsqr(int m, int n) {
         CUDA_CHECK(cudaDeviceSynchronize());
         CUDA_CHECK(cudaEventRecord(start, stream));
 
-        tsqr<T>(m, n, d_A, lda, d_R, ldr, d_work, ldwork);
+        tsqr<T>(cublasH, m, n, d_A, lda, d_R, ldr, d_work, ldwork);
         CUDA_CHECK(cudaDeviceSynchronize());
 
         CUDA_CHECK(cudaEventRecord(stop, stream));
@@ -87,7 +88,7 @@ void test_tsqr(int m, int n) {
     }
     time /= NUM_REPEAT;
 
-    printf("tsqr Latency: %f ms\n", time);
+    std::cout << "hou_tsqr_panel Latency: " << time << " ms" << std::endl;
 
     CUDA_CHECK(cudaMemcpyAsync(A_from_gpu.data(), d_A,
                                sizeof(T) * A_from_gpu.size(),
@@ -99,21 +100,23 @@ void test_tsqr(int m, int n) {
     CUDA_CHECK(cudaStreamSynchronize(stream));
 
     /* free resources */
-    CUDA_CHECK(cudaStreamDestroy(stream));
     CUDA_CHECK(cudaFree(d_A));
     CUDA_CHECK(cudaFree(d_R));
     CUDA_CHECK(cudaFree(d_work));
 
+    // CUSOLVER_CHECK(cusolverDnDestroy(cusolverH));
+    CUBLAS_CHECK(cublasDestroy(cublasH));
+
+    CUDA_CHECK(cudaStreamDestroy(stream));
+
     CUDA_CHECK(cudaDeviceReset());
 }
-template void test_tsqr<double>(int m, int n);
-template void test_tsqr<float>(int m, int n);
+
+template void test_tsqr<float>(long m, long n);
+template void test_tsqr<double>(long m, long n);
 
 int main(int argc, char *argv[]) {
-    int m = 13824, n = 32;
-    int dataType = 2;
-
-    // print_device_info();
+    long m = 16384, n = 32, dataType = 2;
 
     if (argc >= 4) {
         m = atoi(argv[1]);
@@ -121,7 +124,9 @@ int main(int argc, char *argv[]) {
         dataType = atoi(argv[3]);
     }
 
-    if (1 == dataType) {
+    if (0 == dataType) {
+        // test_hou_tsqr_panel<half>(m, n);
+    } else if (1 == dataType) {
         test_tsqr<float>(m, n);
     } else if (2 == dataType) {
         test_tsqr<double>(m, n);

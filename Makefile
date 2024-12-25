@@ -6,7 +6,7 @@ OBJ_FILES = $(CU_FILES:%.cu=%)
 all:  $(OBJ_FILES)
 
 %: %.cu
-	nvcc -lineinfo -arch=native -l cusolver -l cublas -I . $< -o $@
+	nvcc -O3 -arch=native -l cusolver -l cublas -I . $< -o $@
 
 clean:
 	-rm $(OBJ_FILES)
