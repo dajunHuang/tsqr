@@ -37,7 +37,7 @@ template <typename T>
 __global__ void tsqr_kernel(int m, int n, T *A, int lda, T *R, int ldr) {
     // 创建shared memory，让整个block的线程能够进行数据共享
     shared_memory<T> shared;
-    T *AA = shared.get_pointer();
+    T *shared_A = shared.get_pointer();
 
     int ldsa = BLOCK_SIZE;
 
@@ -62,7 +62,7 @@ __global__ void tsqr_kernel(int m, int n, T *A, int lda, T *R, int ldr) {
         for (int h = 0; h < num_data_col; ++h) {
             int col_idx = thread_idx_y + h * block_dim_y;
             if (col_idx < n) {
-                AA[row_idx + col_idx * ldsa] = A[row_idx + col_idx * lda];
+                shared_A[row_idx + col_idx * ldsa] = A[row_idx + col_idx * lda];
             }
         }
     }
@@ -88,7 +88,7 @@ __global__ void tsqr_kernel(int m, int n, T *A, int lda, T *R, int ldr) {
                 int row_idx = thread_idx_x + k * block_dim_x;
                 // if条件中，前部部分是为了防止最后一个block中线程行越界；后半部分在计算HouseHolder向量是只计算对角线一下的元素
                 if (row_idx >= cols) {
-                    q[k] = AA[row_idx + cols * ldsa];
+                    q[k] = shared_A[row_idx + cols * ldsa];
                     acc[k] = q[k] * q[k];
                 }
                 nu += acc[k];
@@ -124,7 +124,7 @@ __global__ void tsqr_kernel(int m, int n, T *A, int lda, T *R, int ldr) {
             for (int k = 0; k < NUM_Q_ROW; k++) {
                 int row_idx = thread_idx_x + k * block_dim_x;
                 if (row_idx >= cols) {
-                    AA[row_idx + cols * ldsa] = q[k] * scale;
+                    shared_A[row_idx + cols * ldsa] = q[k] * scale;
                 }
             }
         }
@@ -147,8 +147,8 @@ __global__ void tsqr_kernel(int m, int n, T *A, int lda, T *R, int ldr) {
                     int row_idx = thread_idx_x + k * block_dim_x;
                     // if条件中，前部部分是为了防止最后一个block中线程行越界；后半部分在计算HouseHolder向量是只计算对角线一下的元素
                     if (row_idx >= cols) {
-                        q[k] = AA[row_idx + cols * ldsa];
-                        acc[k] = q[k] * AA[row_idx + opCols * ldsa];
+                        q[k] = shared_A[row_idx + cols * ldsa];
+                        acc[k] = q[k] * shared_A[row_idx + opCols * ldsa];
                     }
                     nu += acc[k];
                 }
@@ -160,7 +160,7 @@ __global__ void tsqr_kernel(int m, int n, T *A, int lda, T *R, int ldr) {
                     int row_idx = thread_idx_x + k * block_dim_x;
                     // if条件中，前部部分是为了防止最后一个block中线程行越界；后半部分在计算HouseHolder向量是只计算对角线一下的元素
                     if (row_idx >= cols) {
-                        AA[row_idx + opCols * ldsa] -= utx * q[k];
+                        shared_A[row_idx + opCols * ldsa] -= utx * q[k];
                     }
                 }
             }
@@ -182,8 +182,8 @@ __global__ void tsqr_kernel(int m, int n, T *A, int lda, T *R, int ldr) {
         for (int k = 0; k < rRowDataNum; k++) {
             int row_idx = thread_idx_x + k * block_dim_x;
             if (row_idx < opCols) {
-                R[row_idx + opCols * ldr] = AA[row_idx + opCols * ldsa];
-                AA[row_idx + opCols * ldsa] = 0.0;
+                R[row_idx + opCols * ldr] = shared_A[row_idx + opCols * ldsa];
+                shared_A[row_idx + opCols * ldsa] = 0.0;
             } else if (row_idx > opCols) {
                 R[row_idx + opCols * ldr] = 0.0;
             }
@@ -220,7 +220,7 @@ __global__ void tsqr_kernel(int m, int n, T *A, int lda, T *R, int ldr) {
                 for (int k = 0; k < NUM_Q_ROW; k++) {
                     acc[k] = 0.0;
                     int row_idx = thread_idx_x + k * block_dim_x;
-                    acc[k] = AA[row_idx + cols * ldsa] * q[k];
+                    acc[k] = shared_A[row_idx + cols * ldsa] * q[k];
                     nu += acc[k];
                 }
 
@@ -230,7 +230,7 @@ __global__ void tsqr_kernel(int m, int n, T *A, int lda, T *R, int ldr) {
 #pragma unroll
                 for (int k = 0; k < NUM_Q_ROW; k++) {
                     int row_idx = thread_idx_x + k * block_dim_x;
-                    q[k] -= utq * AA[row_idx + cols * ldsa];
+                    q[k] -= utq * shared_A[row_idx + cols * ldsa];
                 }
 
                 __syncwarp();
