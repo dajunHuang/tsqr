@@ -57,7 +57,7 @@ void test_tsqr(long m, long n) {
 
     cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
     tsqr<T>(cublasH, m, n, d_A, lda, d_R, ldr, d_work, ldwork);
-    CUDA_CHECK_LAST_ERROR();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     check_QR_accuracy<T>(m, n, d_A, lda, d_R, ldr, A);
 
