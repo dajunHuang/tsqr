@@ -13,11 +13,11 @@ void tsqr_func(cublasHandle_t cublas_handle, cudaDataType_t cuda_data_type,
                int m, int n, T *A, int lda, T *R, int ldr, T *work,
                int ldwork) {
     // 一个block最大为32x32，一个block中的thread可以使用共享内存进行通信，
-    //  所以使用一个block处理一个最大为<BLOCK_SIZE,N>的矩阵块，并对它进行QR分解
-    dim3 blockDim(BLOCK_DIM_X, BLOCK_DIM_Y);
+    //  所以使用一个block处理一个最大为<TSQR_BLOCK_SIZE,N>的矩阵块，并对它进行QR分解
+    dim3 blockDim(TSQR_BLOCK_DIM_X, TSQR_BLOCK_DIM_Y);
 
-    // 1.如果m<=BLOCK_SIZE,就直接调用核函数进行QR分解
-    if (m <= BLOCK_SIZE) {
+    // 1.如果m<=TSQR_BLOCK_SIZE,就直接调用核函数进行QR分解
+    if (m <= TSQR_BLOCK_SIZE) {
         // 调用核函数进行QR分解
         // 分解后A矩阵中存放的是Q矩阵，R矩阵中存放的是R矩阵
         tsqr_kernel<T>
@@ -28,7 +28,7 @@ void tsqr_func(cublasHandle_t cublas_handle, cudaDataType_t cuda_data_type,
 
     // 2.使用按列进行分段的方式进行QR分解
     // 2.1 把瘦高矩阵进行按列分段
-    int blockNum = (m + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    int blockNum = (m + TSQR_BLOCK_SIZE - 1) / TSQR_BLOCK_SIZE;
 
     // 2.2直接创建这么多个核函数进行QR分解,A中存放Q, work中存放R
     tsqr_kernel<T>
@@ -43,17 +43,17 @@ void tsqr_func(cublasHandle_t cublas_handle, cudaDataType_t cuda_data_type,
     // 注意这里使用了一个batch乘积的方法，是一个非常有趣的思想,需要结合瘦高矩阵的分块矩阵理解，非常有意思
     T tone = 1.0, tzero = 0.0;
     cublasGemmStridedBatchedEx(
-        cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, BLOCK_SIZE, n, n, &tone, A,
-        cuda_data_type, lda, BLOCK_SIZE, work, cuda_data_type, ldwork, n,
-        &tzero, A, cuda_data_type, lda, BLOCK_SIZE, m / BLOCK_SIZE,
+        cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, TSQR_BLOCK_SIZE, n, n, &tone, A,
+        cuda_data_type, lda, TSQR_BLOCK_SIZE, work, cuda_data_type, ldwork, n,
+        &tzero, A, cuda_data_type, lda, TSQR_BLOCK_SIZE, m / TSQR_BLOCK_SIZE,
         cublas_compute_type, CUBLAS_GEMM_DEFAULT);
 
     // 3.2如果m/M还有剩余的话，还需要计算最后一个块的Q进行乘法计算，才能得到最终的Q
-    int mm = m % BLOCK_SIZE;
+    int mm = m % TSQR_BLOCK_SIZE;
     if (0 < mm) {
         cublasGemmEx(cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, mm, n, n, &tone,
                      A + (m - mm), cuda_data_type, lda,
-                     work + (m / BLOCK_SIZE * n), cuda_data_type, ldwork,
+                     work + (m / TSQR_BLOCK_SIZE * n), cuda_data_type, ldwork,
                      &tzero, A + (m - mm), cuda_data_type, lda,
                      cublas_compute_type, CUBLAS_GEMM_DEFAULT);
     }
@@ -76,11 +76,12 @@ template void tsqr_func<double>(cublasHandle_t cublas_handle,
 template <typename T>
 void tsqr(cublasHandle_t cublas_handle, int m, int n, T *A, int lda, T *R,
           int ldr, T *work, int ldwork) {
-    if (0 != (m % BLOCK_SIZE) % n) {
-        std::cout << "hou_tsqr_panel QR the m%BLOCK_SIZE must be multis of n"
-                  << std::endl;
-        exit(1);
-    }
+
+    assert(m >= n);
+    assert(m % TSQR_BLOCK_SIZE == 0);
+    assert(TSQR_BLOCK_SIZE % TSQR_BLOCK_DIM_X == 0);
+    assert(n % TSQR_BLOCK_DIM_Y == 0);
+    assert(m % n == 0);
 
     cudaDataType_t cuda_data_type;
     cublasComputeType_t cublas_compute_type;
@@ -96,7 +97,7 @@ void tsqr(cublasHandle_t cublas_handle, int m, int n, T *A, int lda, T *R,
         cublas_compute_type = CUBLAS_COMPUTE_16F;
     }
 
-    int share_memory_size = BLOCK_SIZE * n * sizeof(T);
+    int share_memory_size = TSQR_BLOCK_SIZE * n * sizeof(T);
     CUDA_CHECK(cudaFuncSetAttribute(tsqr_kernel<T>,
                                     cudaFuncAttributeMaxDynamicSharedMemorySize,
                                     share_memory_size));
