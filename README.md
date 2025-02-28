@@ -23,11 +23,11 @@ void tsqr(cublasHandle_t cublas_handle, int m, int n, T *A, int lda, T *R,
 - `R`：存放结果 R 矩阵的地址；
 - `ldr`：R 矩阵首维度大小；
 - `ldwork`：工作空间首维度大小，最小为：
-$$
-ldwork_{min} = \left \lceil \frac{m}{BLOCK\_SIZE} \right \rceil*n
-$$
+
+<img src="pic/ldwork.jpg" style="zoom:50%;" />
+
 - `work`：分解所需工作空间的地址，分配的空间最小为：
-$$
-ldwork_{min} *(\left \lceil \log_{\frac{BLOCK\_SIZE}{n}}\frac{m}{n} \right \rceil-1)* n * sizeof(T)
-$$
+
+<img src="pic/work.jpg" style="zoom:50%;" />
+
 `BLOCK_SIZE`为算法内部分块大小，即[kernelQR.h](kernelQR.h)中的TSQR_BLOCK_SIZE
