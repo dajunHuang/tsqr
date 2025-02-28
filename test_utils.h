@@ -34,7 +34,6 @@
 #include <cusolverDn.h>
 #include <library_types.h>
 
-#include <cassert>
 #include <cmath>
 #include <functional>
 #include <iostream>

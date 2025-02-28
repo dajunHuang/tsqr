@@ -8,6 +8,7 @@
 #include <iostream>
 #include <vector>
 
+#include "test_utils.h"
 #include "TallShinnyQR.h"
 
 #define NUM_WARPUP 2
@@ -48,10 +49,10 @@ void test_tsqr(long m, long n) {
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(T) * m * n));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_R), sizeof(T) * n * n));
 
-    const int ldwork = m;
+    const int ldwork = 2048;
 
     CUDA_CHECK(
-        cudaMalloc(reinterpret_cast<void **>(&d_work), sizeof(T) * ldwork * n * 16));
+        cudaMalloc(reinterpret_cast<void **>(&d_work), sizeof(T) * ldwork * 64));
     CUDA_CHECK(cudaMemcpyAsync(d_A, A.data(), sizeof(T) * A.size(),
                                cudaMemcpyHostToDevice, stream));
 
