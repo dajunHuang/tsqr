@@ -30,4 +30,4 @@ void tsqr(cublasHandle_t cublas_handle, int m, int n, T *A, int lda, T *R,
 
 <img src="pic/work.jpg" style="zoom:50%;" />
 
-`BLOCK_SIZE`为算法内部分块大小，即[TallShinnyQR.h](TallShinnyQR.h)中的 TSQR_BLOCK_SIZE
+`BLOCK_SIZE`为算法内部分块大小，即[TallShinnyQR.h](TallShinnyQR.h)中的 TSQR_BLOCK_SIZE，默认为 256
