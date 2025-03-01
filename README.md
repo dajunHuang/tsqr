@@ -1,4 +1,4 @@
-主分支的 share memory 版本性能不佳，global 分支下的传统方法性能更好
+**主分支的 share memory 版本性能不佳，global 分支下的传统方法性能更好**
 
 # qr
 
