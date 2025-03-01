@@ -17,11 +17,11 @@ void tsqr(cublasHandle_t cublas_handle, int m, int n, T *A, int lda, T *R,
 - `T`：计算的数据类型，支持 float 和 double；
 - `cublas_handle`：cublas 句柄；
 - `m`：矩阵 A 和矩阵 Q 的高度；
-- `n`: 矩阵 A 和矩阵 Q 的高度、矩阵 R 的高度和宽度；
-- `A`：存放输入 A 矩阵的地址，计算后被结果 Q 矩阵覆盖；
-- `lda`：A 矩阵和 Q 矩阵的首维度大小；
-- `R`：存放结果 R 矩阵的地址；
-- `ldr`：R 矩阵首维度大小；
+- `n`：矩阵 A 和矩阵 Q 的宽度、矩阵 R 的高度和宽度；
+- `A`：矩阵 A 的地址，计算后被矩阵 Q 覆盖；
+- `lda`：矩阵 A 和矩阵 Q 的首维度大小；
+- `R`：矩阵 R 的地址；
+- `ldr`：矩阵 R 首维度大小；
 - `ldwork`：工作空间首维度大小，最小为：
 
 <img src="pic/ldwork.jpg" style="zoom:50%;" />
@@ -30,4 +30,4 @@ void tsqr(cublasHandle_t cublas_handle, int m, int n, T *A, int lda, T *R,
 
 <img src="pic/work.jpg" style="zoom:50%;" />
 
-`BLOCK_SIZE`为算法内部分块大小，即[kernelQR.h](kernelQR.h)中的TSQR_BLOCK_SIZE
+`BLOCK_SIZE`为算法内部分块大小，即[TallShinnyQR.h](TallShinnyQR.h)中的 TSQR_BLOCK_SIZE
