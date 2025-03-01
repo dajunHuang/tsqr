@@ -1,4 +1,5 @@
 #pragma once
+#include <cublas_v2.h>
 #include <cublas_api.h>
 #include <cuda_runtime_api.h>
 
@@ -359,7 +360,7 @@ void tsqr(cublasHandle_t cublas_handle, int m, int n, T *A, int lda, T *R,
                          cudaFuncAttributeMaxDynamicSharedMemorySize,
                          share_memory_size);
 
-    tsqr_func(cublas_handle, cuda_data_type, m, n, A, lda, R, ldr, work,
+    tsqr_func(cublas_handle, share_memory_size, m, n, A, lda, R, ldr, work,
               ldwork);
 }
 
