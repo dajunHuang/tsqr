@@ -1,3 +1,4 @@
+#include <cublas_v2.h>
 #include <cuda_runtime.h>
 #include <cusolverDn.h>
 
@@ -7,8 +8,8 @@
 #include <iostream>
 #include <vector>
 
-#include "test_utils.h"
 #include "TallShinnyQR.h"
+#include "test_utils.h"
 
 #define NUM_WARPUP 2
 #define NUM_REPEAT 5
@@ -19,19 +20,10 @@ void test_tsqr(long m, long n) {
     cublasHandle_t cublasH = NULL;
     cudaStream_t stream = NULL;
 
-    const long lda = m;
-    const long ldr = n;
+    const long lda = m + 32;
+    const long ldr = n + 32;
 
-    std::vector<T> A(m * n, 0);
-    std::vector<T> A_from_gpu(m * n, 0);
-    std::vector<T> R_from_gpu(n * n, 0);
-
-    std::default_random_engine eng(0U);
-    // std::uniform_int_distribution<int> dis(0, 5);
-    std::uniform_real_distribution<T> dis(-1.0f, 1.0f);
-    auto const rand = [&dis, &eng]() { return dis(eng); };
-    std::generate(A.begin(), A.end(), rand);
-
+    T *d_A_ori = nullptr;
     T *d_A = nullptr;
     T *d_R = nullptr;
     T *d_work = nullptr;
@@ -45,21 +37,23 @@ void test_tsqr(long m, long n) {
     CUBLAS_CHECK(cublasSetStream(cublasH, stream));
 
     /* step 2: copy A to device */
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(T) * m * n));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_R), sizeof(T) * n * n));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A_ori), sizeof(T) * lda * n));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(T) * lda * n));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_R), sizeof(T) * ldr * n));
 
     const int ldwork = 2048;
 
     CUDA_CHECK(
         cudaMalloc(reinterpret_cast<void **>(&d_work), sizeof(T) * ldwork * 64));
-    CUDA_CHECK(cudaMemcpyAsync(d_A, A.data(), sizeof(T) * A.size(),
-                               cudaMemcpyHostToDevice, stream));
 
-    cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
+    generateUniformMatrix(d_A_ori, lda, n);
+    CUDA_CHECK(
+        cudaMemcpy(d_A, d_A_ori, sizeof(T) * lda * n, cudaMemcpyDeviceToDevice));
+
     tsqr<T>(cublasH, m, n, d_A, lda, d_R, ldr, d_work, ldwork);
     CUDA_CHECK(cudaDeviceSynchronize());
 
-    check_QR_accuracy<T>(m, n, d_A, lda, d_R, ldr, A);
+    check_QR_accuracy<T>(m, n, d_A, lda, d_R, ldr, d_A_ori);
 
     cudaEvent_t start, stop;
     float time = 0, temp_time = 0;
@@ -67,13 +61,15 @@ void test_tsqr(long m, long n) {
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
     for (int i{0}; i < NUM_WARPUP; ++i) {
-        cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
+        CUDA_CHECK(
+            cudaMemcpy(d_A, d_A_ori, sizeof(T) * lda * n, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaDeviceSynchronize());
         tsqr<T>(cublasH, m, n, d_A, lda, d_R, ldr, d_work, ldwork);
     }
     CUDA_CHECK(cudaStreamSynchronize(stream));
     for (int i{0}; i < NUM_REPEAT; ++i) {
-        cudaMemcpy(d_A, A.data(), sizeof(T) * A.size(), cudaMemcpyHostToDevice);
+        CUDA_CHECK(
+            cudaMemcpy(d_A, d_A_ori, sizeof(T) * lda * n, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaDeviceSynchronize());
         CUDA_CHECK(cudaEventRecord(start, stream));
 
@@ -89,13 +85,6 @@ void test_tsqr(long m, long n) {
     time /= NUM_REPEAT;
 
     std::cout << "hou_tsqr_panel Latency: " << time << " ms" << std::endl;
-
-    CUDA_CHECK(cudaMemcpyAsync(A_from_gpu.data(), d_A,
-                               sizeof(T) * A_from_gpu.size(),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaMemcpyAsync(R_from_gpu.data(), d_R,
-                               sizeof(T) * R_from_gpu.size(),
-                               cudaMemcpyDeviceToHost, stream));
 
     CUDA_CHECK(cudaStreamSynchronize(stream));
 

@@ -6,7 +6,7 @@
 #include <cassert>
 
 #define TSQR_BLOCK_SIZE 256
-#define TSQR_BLOCK_DIM_Y 8
+#define TSQR_BLOCK_DIM_Y 4
 #define TSQR_BLOCK_DIM_X 64
 #define TSQR_NUM_DATA_ROW 4
 
