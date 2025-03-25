@@ -186,9 +186,12 @@ __global__ void tsqr_kernel(int m, int n, T *A, int lda, T *R, int ldr) {
 #pragma unroll
         for (int k = 0; k < rRowDataNum; k++) {
             int row_idx = thread_idx_x + k * TSQR_BLOCK_DIM_X;
-            if (row_idx < opCols && row_idx < block_size) {
+            if (row_idx < opCols && row_idx < n) {
                 R[row_idx + opCols * ldr] = shared_A[row_idx + opCols * ldsa];
                 shared_A[row_idx + opCols * ldsa] = 0.0;
+            }
+            if (row_idx > opCols && row_idx < n) {
+                R[row_idx + opCols * ldr] = 0.0;
             }
         }
     }
