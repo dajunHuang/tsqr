@@ -1,4 +1,5 @@
 #pragma once
+#include <cublas_v2.h>
 #include <cublas_api.h>
 #include <cuda_runtime_api.h>
 
