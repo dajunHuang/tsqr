@@ -20,8 +20,8 @@ void test_tsqr(long m, long n) {
     cublasHandle_t cublasH = NULL;
     cudaStream_t stream = NULL;
 
-    const long lda = m + 128;
-    const long ldr = n + 128;
+    const long lda = m;
+    const long ldr = n;
 
     T *d_A_ori = nullptr;
     T *d_A = nullptr;
@@ -41,14 +41,12 @@ void test_tsqr(long m, long n) {
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_A), sizeof(T) * lda * n));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_R), sizeof(T) * ldr * n));
 
-    const int ldwork = 2048;
+    const int ldwork = 8192;
 
-    CUDA_CHECK(
-        cudaMalloc(reinterpret_cast<void **>(&d_work), sizeof(T) * ldwork * 64));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void **>(&d_work), sizeof(T) * ldwork * n * 16));
 
     generateUniformMatrix(d_A_ori, lda, n);
-    CUDA_CHECK(
-        cudaMemcpy(d_A, d_A_ori, sizeof(T) * lda * n, cudaMemcpyDeviceToDevice));
+    CUDA_CHECK(cudaMemcpy(d_A, d_A_ori, sizeof(T) * lda * n, cudaMemcpyDeviceToDevice));
 
     tsqr<T>(cublasH, m, n, d_A, lda, d_R, ldr, d_work, ldwork);
     CUDA_CHECK(cudaDeviceSynchronize());
@@ -61,15 +59,13 @@ void test_tsqr(long m, long n) {
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
     for (int i{0}; i < NUM_WARPUP; ++i) {
-        CUDA_CHECK(
-            cudaMemcpy(d_A, d_A_ori, sizeof(T) * lda * n, cudaMemcpyDeviceToDevice));
+        CUDA_CHECK(cudaMemcpy(d_A, d_A_ori, sizeof(T) * lda * n, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaDeviceSynchronize());
         tsqr<T>(cublasH, m, n, d_A, lda, d_R, ldr, d_work, ldwork);
     }
     CUDA_CHECK(cudaStreamSynchronize(stream));
     for (int i{0}; i < NUM_REPEAT; ++i) {
-        CUDA_CHECK(
-            cudaMemcpy(d_A, d_A_ori, sizeof(T) * lda * n, cudaMemcpyDeviceToDevice));
+        CUDA_CHECK(cudaMemcpy(d_A, d_A_ori, sizeof(T) * lda * n, cudaMemcpyDeviceToDevice));
         CUDA_CHECK(cudaDeviceSynchronize());
         CUDA_CHECK(cudaEventRecord(start, stream));
 
@@ -84,7 +80,9 @@ void test_tsqr(long m, long n) {
     }
     time /= NUM_REPEAT;
 
-    std::cout << "hou_tsqr_panel Latency: " << time << " ms" << std::endl;
+    std::cout << "m: " << m << ", n: " << n << ", hou_tsqr_panel Latency: " << time << " ms, "
+              << (float(2) * m * n * n - float(2) / 3 * n * n * n) / time / 1e9 << " TFLOPS"
+              << std::endl;
 
     CUDA_CHECK(cudaStreamSynchronize(stream));
 
